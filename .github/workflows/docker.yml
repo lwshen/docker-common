@@ -16,14 +16,19 @@ jobs:
             tags: 8
             platforms: linux/amd64,linux/arm64/v8
 
-          - path: jdk8
+          - path: jdk/8
             image: shenlw/jdk
             tags: 8
             platforms: linux/amd64
 
-          - path: jdk11
+          - path: jdk/11
             image: shenlw/jdk
             tags: 11
+            platforms: linux/amd64
+
+          - path: jdk/17
+            image: shenlw/jdk
+            tags: 17
             platforms: linux/amd64
 
     steps:
