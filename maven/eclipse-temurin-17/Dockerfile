@@ -18,7 +18,14 @@ ENV MAVEN_HOME /usr/share/maven
 ENV MAVEN_CONFIG "$USER_HOME_DIR/.m2"
 
 COPY mvn-entrypoint.sh /usr/local/bin/mvn-entrypoint.sh
-COPY settings-docker.xml /usr/share/maven/ref/
+COPY settings-docker.xml $MAVEN_CONFIG/settings.xml
+
+WORKDIR /tmp
+
+RUN git clone https://github.com/jitpack/maven-simple.git && \
+    mvn -q package -f maven-simple/pom.xml && \
+    rm -r "/tmp/"* && \
+    rm -r $MAVEN_CONFIG/repository
 
 ENTRYPOINT ["/usr/local/bin/mvn-entrypoint.sh"]
 CMD ["mvn"]

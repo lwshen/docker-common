@@ -2,21 +2,21 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
                       https://maven.apache.org/xsd/settings-1.0.0.xsd">
-  <localRepository>/usr/share/maven/ref/repository</localRepository>
+  <!-- <localRepository>/usr/share/maven/ref/repository</localRepository> -->
 
   <mirrors>
     <mirror>
-     <id>aliyunmaven</id>
-     <mirrorOf>central</mirrorOf>
-     <name>阿里云公共仓库</name>
-     <url>https://maven.aliyun.com/repository/central</url>
+        <!--This sends everything else to /public -->
+        <id>aliyun-nexus</id>
+        <mirrorOf>*</mirrorOf> 
+        <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
     </mirror>
-
     <mirror>
-     <id>aliyunmaven</id>
-     <mirrorOf>apache snapshots</mirrorOf>
-     <name>阿里云阿帕奇仓库</name>
-     <url>https://maven.aliyun.com/repository/apache-snapshots</url>
+        <!--This is used to direct the public snapshots repo in the 
+            profile below over to a different nexus group -->
+        <id>aliyun-nexus-public-snapshots</id>
+        <mirrorOf>public-snapshots</mirrorOf> 
+        <url>http://maven.aliyun.com/nexus/content/repositories/snapshots/</url>
     </mirror>
 
     <mirror>
