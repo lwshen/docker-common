@@ -9,7 +9,7 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 
 RUN apt-get update -qq && \
-    apt-get install -qq --no-install-recommends build-essential wget rsync && \
+    apt-get install -qq --no-install-recommends build-essential ca-certificates wget curl rsync && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
