@@ -19,12 +19,17 @@ jobs:
           - path: jdk/8
             image: shenlw/jdk
             tags: 8
-            platforms: linux/amd64
+            platforms: linux/amd64,linux/arm64,linux/arm/v7
 
           - path: jdk/11
             image: shenlw/jdk
             tags: 11
-            platforms: linux/amd64
+            platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
+
+          - path: jdk/17
+            image: shenlw/jdk
+            tags: 17
+            platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
 
           - path: jdk/17
             image: shenlw/jdk
