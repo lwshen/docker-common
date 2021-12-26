@@ -9,7 +9,7 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 
 RUN apt-get update -qq && \
-    apt-get install -qq --no-install-recommends build-essential wget curl rsync && \
+    apt-get install -qq --no-install-recommends build-essential ca-certificates wget curl rsync && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
@@ -37,7 +37,7 @@ RUN set -eux; \
          exit 1; \
          ;; \
     esac; \
-    curl -LfsSo openjdk.tar.gz ${BINARY_URL} && \
+    wget -q --no-check-certificate ${BINARY_URL} -O openjdk.tar.gz && \
     tar -xzf openjdk.tar.gz && \
     mkdir -p "/usr/lib/jvm" && \
     mv "/tmp/jdk-${JAVA_UPDATE}+"${JAVA_BUILD} "/usr/lib/jvm/java-${JAVA_VERSION}" && \
