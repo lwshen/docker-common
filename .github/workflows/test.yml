@@ -1,4 +1,4 @@
-name: Test Docker image
+name: Test Docker Image
 
 on: [push, pull_request, workflow_dispatch]
 
@@ -20,3 +20,12 @@ jobs:
 
           echo "JRE8"
           docker run -i $(docker build -q jre8) /bin/sh -c "java -version"
+
+          echo "MAVEN && JDK8"
+          docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c "mvn --version && java -version && javac -version"
+
+          echo "MAVEN && JDK11"
+          docker run -i $(docker build -q maven/eclipse-temurin-11) /bin/sh -c "mvn --version && java -version && javac -version"
+
+          echo "MAVEN && JDK17"
+          docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c "mvn --version && java -version && javac -version"
