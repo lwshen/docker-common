@@ -1,0 +1,19 @@
+name: Test Docker image
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2.4.0
+      - name: Build the Docker image
+        run: |
+          echo "JDK8"
+          docker run -i $(docker build -q jdk8) /bin/sh -c "java -version"
+          
+          echo "JDK11"
+          docker run -i $(docker build -q jdk11) /bin/sh -c "java -version"
+
+          echo "JRE8"
+          docker run -i $(docker build -q jre8) /bin/sh -c "java -version"
