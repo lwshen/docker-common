@@ -4,10 +4,14 @@ Based on openjdk:8-jre
 
 ## Build
 
-    docker build -t shenlw/jre8 .
-    docker push shenlw/jre8
+    docker build -t shenlw/jre:8 .
+
+
+## Push
+
+    docker push shenlw/jre:8
 
 
 ## Test
 
-    docker run -d shenlw/jre8
+    docker run -d shenlw/jre:8
