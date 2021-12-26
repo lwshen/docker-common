@@ -14,7 +14,7 @@ RUN apt-get install -y wget
 RUN apt-get install -y rsync
 
 RUN cd /tmp && \
-    wget --no-check-certificate https://github.com/adoptium/temurin${JAVA_VERSION}-binaries/releases/download/jdk${JAVA_VERSION}u${JAVA_UPDATE}-b${JAVA_BUILD}/OpenJDK${JAVA_VERSION}U-jdk_x64_linux_hotspot_${JAVA_VERSION}u${JAVA_UPDATE}b${JAVA_BUILD}.tar.gz && \
+    wget -q --no-check-certificate https://github.com/adoptium/temurin${JAVA_VERSION}-binaries/releases/download/jdk${JAVA_VERSION}u${JAVA_UPDATE}-b${JAVA_BUILD}/OpenJDK${JAVA_VERSION}U-jdk_x64_linux_hotspot_${JAVA_VERSION}u${JAVA_UPDATE}b${JAVA_BUILD}.tar.gz && \
     tar -xzf "OpenJDK${JAVA_VERSION}U-jdk_x64_linux_hotspot_${JAVA_VERSION}u${JAVA_UPDATE}b${JAVA_BUILD}.tar.gz" && \
     mkdir -p "/usr/lib/jvm" && \
     mv "/tmp/jdk${JAVA_VERSION}u${JAVA_UPDATE}-b"${JAVA_BUILD} "/usr/lib/jvm/java-${JAVA_VERSION}" && \
