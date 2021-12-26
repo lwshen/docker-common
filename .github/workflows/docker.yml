@@ -44,7 +44,7 @@ jobs:
           - path: maven/eclipse-temurin-17
             image: shenlw/maven
             tags: 3.8.4-jdk-17, 3.8-jdk-17, 3-jdk-17, 3.8.4-eclipse-temurin-17, 3.8-eclipse-temurin-17, 3-eclipse-temurin-17
-            platforms: linux/amd64,linux/arm64,linux/s390x
+            platforms: linux/amd64,linux/arm64
 
     steps:
       - name: Checkout
