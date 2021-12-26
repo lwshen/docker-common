@@ -10,13 +10,13 @@ jobs:
       - name: Build the Docker image
         run: |
           echo "JDK8"
-          docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac --version"
+          docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac -version"
           
           echo "JDK11"
-          docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac --version"
+          docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac -version"
 
           echo "JDK11"
-          docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac --version"
+          docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
 
           echo "JRE8"
           docker run -i $(docker build -q jre8) /bin/sh -c "java -version"
