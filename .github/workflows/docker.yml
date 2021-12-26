@@ -14,7 +14,7 @@ jobs:
           - path: jre8
             image: shenlw/jre
             tags: 8
-            platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x,linux/arm/v7
+            platforms: linux/amd64,linux/arm64/v8
 
           - path: jdk8
             image: shenlw/jdk
