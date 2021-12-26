@@ -9,5 +9,5 @@ jobs:
       - uses: actions/checkout@v2.4.0
       - run: brew install hadolint
       - run: |
-          hadolint jdk{8,11}/*Dockerfile
+          hadolint --ignore DL3008 jdk{8,11}/*Dockerfile
           hadolint jre8/*Dockerfile
