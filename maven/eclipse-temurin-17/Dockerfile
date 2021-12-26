@@ -22,10 +22,7 @@ COPY settings-docker.xml $MAVEN_CONFIG/settings.xml
 
 WORKDIR /tmp
 
-RUN git clone https://github.com/jitpack/maven-simple.git && \
-    mvn -q package -f maven-simple/pom.xml && \
-    rm -r "/tmp/"* && \
-    rm -r $MAVEN_CONFIG/repository
+# TODO: test maven projects
 
 ENTRYPOINT ["/usr/local/bin/mvn-entrypoint.sh"]
 CMD ["mvn"]
