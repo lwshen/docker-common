@@ -37,7 +37,7 @@ RUN set -eux; \
     wget -q --no-check-certificate ${BINARY_URL} -O openjdk.tar.gz && \
     tar -xzf openjdk.tar.gz && \
     mkdir -p "/usr/lib/jvm" && \
-    mv "/tmp/jdk${JAVA_VERSION}u${JAVA_UPDATE}-b"${JAVA_BUILD} "/usr/lib/jvm/java-${JAVA_VERSION}" && \
+    mv /tmp/jdk* "/usr/lib/jvm/java-${JAVA_VERSION}" && \
     ln -s "java-${JAVA_VERSION}" "$JAVA_HOME" && \
     ln -s "$JAVA_HOME/bin/"* "/usr/bin/" && \
     rm "/tmp/"* && \
