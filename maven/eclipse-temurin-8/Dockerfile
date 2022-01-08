@@ -5,7 +5,7 @@ ARG USER_HOME_DIR="/root"
 ARG BASE_URL=https://apache.osuosl.org/maven/maven-3/${MAVEN_VERSION}/binaries
 
 RUN apt-get update \
-    && apt-get install -qq --no-install-recommends git openssh-client \
+    && apt-get install -qq --no-install-recommends rsync git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
