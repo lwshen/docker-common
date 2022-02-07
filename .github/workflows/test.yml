@@ -17,14 +17,20 @@ jobs:
           echo "===================="
           echo "JDK8"
           docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q jdk/8) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
           
           echo "===================="
           echo "JDK11"
           docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac -version"
-
+          docker run -i $(docker build -q jdk/11) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
+          
           echo "===================="
           echo "JDK11"
           docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q jdk/17) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
           echo "===================="
           echo "JRE8"
