@@ -39,11 +39,11 @@ jobs:
           echo "===================="
           echo "MAVEN && JDK11"
           docker run -i $(docker build -q maven/eclipse-temurin-11) /bin/sh -c "mvn --version && java -version && javac -version"
-          docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c \
+          docker run -i $(docker build -q maven/eclipse-temurin-11) /bin/sh -c \
             "git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
 
           echo "===================="
           echo "MAVEN && JDK17"
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c "mvn --version && java -version && javac -version"
-          docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c \
+          docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c \
             "git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
