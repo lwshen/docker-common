@@ -6,10 +6,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+
       - name: Prepare
         run: find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
 
-      - uses: actions/checkout@v2.4.0
       - name: Build the Docker image
         run: |
           echo "JDK8"
