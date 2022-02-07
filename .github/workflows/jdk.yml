@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - jdk/**
+      - .github/workflows/jdk.yml
 
 jobs:
   build:

@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - jre/**
+      - .github/workflows/jre.yml
 
 jobs:
   build:

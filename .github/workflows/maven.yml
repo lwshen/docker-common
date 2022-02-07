@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - maven/**
+      - .github/workflows/maven.yml
 
 jobs:
   build:
