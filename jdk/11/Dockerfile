@@ -43,9 +43,4 @@ RUN set -eux; \
     mv "/tmp/jdk-${JAVA_UPDATE}+"${JAVA_BUILD} "/usr/lib/jvm/java-${JAVA_VERSION}" && \
     ln -s "java-${JAVA_VERSION}" "$JAVA_HOME" && \
     ln -s "$JAVA_HOME/bin/"* "/usr/bin/" && \
-    rm "/tmp/"* && \
-    \
-    echo 'public class Main { public static void main(String[] args) { System.out.println("Java code is running fine!"); } }' > Main.java && \
-    javac Main.java && \
-    java Main && \
-    rm -r "/tmp/"*
+    rm "/tmp/"*
