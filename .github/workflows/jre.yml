@@ -1,8 +1,11 @@
-name: Build Docker
+name: Build JRE Docker
 
 on:
   pull_request:
   push:
+    paths:
+      - jre/**
+      - .github/workflows/jre.yml
 
 jobs:
   build:
@@ -14,37 +17,7 @@ jobs:
           - path: jre8
             image: shenlw/jre
             tags: 8
-            platforms: linux/amd64,linux/arm64/v8
-
-          - path: jdk/8
-            image: shenlw/jdk
-            tags: 8,8-eclipse-temurin
-            platforms: linux/amd64,linux/arm64,linux/arm/v7
-
-          - path: jdk/11
-            image: shenlw/jdk
-            tags: 11,11-eclipse-temurin
-            platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
-
-          - path: jdk/17
-            image: shenlw/jdk
-            tags: 17,17-eclipse-temurin
-            platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
-
-          - path: maven/eclipse-temurin-8
-            image: shenlw/maven
-            tags: 3.8.4-jdk-8, 3.8-jdk-8, 3-jdk-8, 3.8.4-eclipse-temurin-8, 3.8-eclipse-temurin-8, 3-eclipse-temurin-8
-            platforms: linux/amd64,linux/arm64,linux/arm/v7
-
-          - path: maven/eclipse-temurin-11
-            image: shenlw/maven
-            tags: 3.8.4-jdk-11, 3.8-jdk-11, 3-jdk-11, 3.8.4-eclipse-temurin-11, 3.8-eclipse-temurin-11, 3-eclipse-temurin-11
-            platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
-
-          - path: maven/eclipse-temurin-17
-            image: shenlw/maven
-            tags: 3.8.4-jdk-17, 3.8-jdk-17, 3-jdk-17, 3.8.4-eclipse-temurin-17, 3.8-eclipse-temurin-17, 3-eclipse-temurin-17
-            platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
+            platforms: linux/amd64,linux/arm64
 
     steps:
       - name: Checkout
