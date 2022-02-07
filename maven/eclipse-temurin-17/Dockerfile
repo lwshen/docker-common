@@ -22,7 +22,5 @@ COPY settings-docker.xml $MAVEN_CONFIG/settings.xml
 
 WORKDIR /tmp
 
-# TODO: test maven projects
-
 ENTRYPOINT ["/usr/local/bin/mvn-entrypoint.sh"]
 CMD ["mvn"]

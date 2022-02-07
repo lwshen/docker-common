@@ -14,23 +14,36 @@ jobs:
 
       - name: Build the Docker image
         run: |
+          echo "===================="
           echo "JDK8"
           docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac -version"
           
+          echo "===================="
           echo "JDK11"
           docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac -version"
 
+          echo "===================="
           echo "JDK11"
           docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
 
+          echo "===================="
           echo "JRE8"
           docker run -i $(docker build -q jre8) /bin/sh -c "java -version"
 
+          echo "===================="
           echo "MAVEN && JDK8"
           docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c "mvn --version && java -version && javac -version"
+          docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c \
+            "git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
 
+          echo "===================="
           echo "MAVEN && JDK11"
           docker run -i $(docker build -q maven/eclipse-temurin-11) /bin/sh -c "mvn --version && java -version && javac -version"
+          docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c \
+            "git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
 
+          echo "===================="
           echo "MAVEN && JDK17"
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c "mvn --version && java -version && javac -version"
+          docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c \
+            "git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
