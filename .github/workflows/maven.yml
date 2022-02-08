@@ -51,6 +51,7 @@ jobs:
           echo ::set-output name=tags::${TAGS}
 
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
+          find ./maven -maxdepth 1 -type d -exec cp -r ./maven/mvn-entrypoint.sh {} \;
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1.2.0

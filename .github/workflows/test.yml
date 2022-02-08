@@ -10,7 +10,9 @@ jobs:
         uses: actions/checkout@v2.4.0
 
       - name: Prepare
-        run: find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
+        run: |
+          find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
+          find ./maven -maxdepth 1 -type d -exec cp -r ./maven/mvn-entrypoint.sh {} \;
 
       - name: Build the Docker image
         run: |
