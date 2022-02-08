@@ -10,7 +10,9 @@ ENV LANG=C.UTF-8
 
 RUN apt-get update -qq && \
     apt-get install -qq --no-install-recommends build-essential ca-certificates openssl wget curl rsync git openssh-client tar sqlite3 fontconfig libfreetype6 iproute2 libstdc++6 && \
-    DEBIAN_FRONTEND=noninteractive TZ=Asia/Shanghai apt-get -qq --no-install-recommends install tzdata && \
+    DEBIAN_FRONTEND=noninteractive apt-get -qq --no-install-recommends install tzdata && \
+    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
