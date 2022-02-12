@@ -1,11 +1,11 @@
-name: Build JRE Docker
+name: Build JDK Docker (ACR)
 
 on:
   pull_request:
   push:
     paths:
-      - jre/**
-      - .github/workflows/jre.yml
+      - jdk/**
+      - .github/workflows/jdk-acr.yml
 
 jobs:
   build:
@@ -14,10 +14,17 @@ jobs:
       fail-fast: false
       matrix:
         docker-file:
-          - path: jre8
-            image: shenlw/jre
-            tags: 8
-            platforms: linux/amd64,linux/arm64
+          - path: jdk/8
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            tags: 8,8-eclipse-temurin
+
+          - path: jdk/11
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            tags: 11,11-eclipse-temurin
+
+          - path: jdk/17
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            tags: 17,17-eclipse-temurin
 
     steps:
       - name: Checkout
@@ -41,44 +48,41 @@ jobs:
           echo ::set-output name=tags::${TAGS}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1.2.0
+        uses: docker/setup-qemu-action@v1
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v1.6.0
+        uses: docker/setup-buildx-action@v1
         with:
           install: true
+
+      - name: Inspect builder
+        run: |
+          echo "Name:      ${{ steps.buildx.outputs.name }}"
+          echo "Endpoint:  ${{ steps.buildx.outputs.endpoint }}"
+          echo "Status:    ${{ steps.buildx.outputs.status }}"
+          echo "Flags:     ${{ steps.buildx.outputs.flags }}"
+          echo "Platforms: ${{ steps.buildx.outputs.platforms }}"
 
       - name: Available platforms
         run: echo ${{ steps.buildx.outputs.platforms }}
 
-      - name: Docker Buildx (build)
-        uses: docker/build-push-action@v2.7.0
-        if: success() && !contains(github.ref, 'master')
-        with:
-          push: false
-          context: ./${{ matrix.docker-file.path }}
-          file: ./${{ matrix.docker-file.path }}/Dockerfile
-          build-args: REFRESHED_AT=$(date +%Y-%m-%d)
-          platforms: ${{ matrix.docker-file.platforms }}
-          tags: ${{ steps.prepare.outputs.tags }}
-
-      - name: Docker Login
+      - name: Login to Aliyun Container Registry (ACR)
+        uses: aliyun/acr-login@v1
         if: success() && contains(github.ref, 'master')
-        uses: docker/login-action@v1.12.0
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          login-server: https://registry.cn-shanghai.aliyuncs.com
+          username: "${{ secrets.ACR_USERNAME }}"
+          password: "${{ secrets.ACR_PASSWORD }}"
 
       - name: Docker Buildx (push)
-        uses: docker/build-push-action@v2.7.0
+        uses: docker/build-push-action@v2
         if: success() && contains(github.ref, 'master')
         with:
           push: true
           context: ./${{ matrix.docker-file.path }}
           file: ./${{ matrix.docker-file.path }}/Dockerfile
           build-args: REFRESHED_AT=$(date +%Y-%m-%d)
-          platforms: ${{ matrix.docker-file.platforms }}
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Docker Check Manifest
