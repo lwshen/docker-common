@@ -15,17 +15,17 @@ jobs:
       matrix:
         docker-file:
           - path: jdk/8
-            image: shenlw/jdk, registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            image: shenlw/jdk,registry.cn-shanghai.aliyuncs.com/lwshen/jdk
             tags: 8,8-eclipse-temurin
             platforms: linux/amd64,linux/arm64,linux/arm/v7
 
           - path: jdk/11
-            image: shenlw/jdk, registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            image: shenlw/jdk,registry.cn-shanghai.aliyuncs.com/lwshen/jdk
             tags: 11,11-eclipse-temurin
             platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
 
           - path: jdk/17
-            image: shenlw/jdk, registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            image: shenlw/jdk,registry.cn-shanghai.aliyuncs.com/lwshen/jdk
             tags: 17,17-eclipse-temurin
             platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
 
@@ -36,14 +36,18 @@ jobs:
       - name: Prepare
         id: prepare
         run: |
-          DOCKER_IMAGE=${{ matrix.docker-file.image }}
+          DOCKER_IMAGES=$(echo ${{ matrix.docker-file.image }} | tr "," "\n")
+          DOCKER_IMAGE=${DOCKER_IMAGES[0]}
 
           TAGZ=$(echo ${{ matrix.docker-file.tags }} | tr "," "\n")
           VERSION=${TAGZ[0]}
 
-          for tag in $TAGZ
+          for image in $DOCKER_IMAGES
           do
-            TAGS="${TAGS},${DOCKER_IMAGE}:${tag}"
+            for tag in $TAGZ
+            do
+              TAGS="${TAGS},${image}:${tag}"
+            done
           done
 
           echo ::set-output name=docker_image::${DOCKER_IMAGE}
