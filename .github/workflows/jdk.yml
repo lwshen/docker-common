@@ -88,6 +88,7 @@ jobs:
 
       - name: Login to Aliyun Container Registry (ACR)
         uses: aliyun/acr-login@v1
+        if: success() && contains(github.ref, 'master')
         with:
           region-id: cn-shanghai
           username: "${{ secrets.ACR_USERNAME }}"
