@@ -50,8 +50,6 @@ jobs:
           echo ::set-output name=version::${VERSION}
           echo ::set-output name=tags::${TAGS}
 
-          find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1.2.0
 
