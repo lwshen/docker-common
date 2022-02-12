@@ -1,11 +1,11 @@
-name: Build JDK Docker (ACR)
+name: Build Maven Docker (ACR)
 
 on:
   pull_request:
   push:
     paths:
-      - jdk/**
-      - .github/workflows/jdk-acr.yml
+      - maven/**
+      - .github/workflows/maven-acr.yml
 
 jobs:
   build:
@@ -14,17 +14,17 @@ jobs:
       fail-fast: false
       matrix:
         docker-file:
-          - path: jdk/8
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 8,8-eclipse-temurin
+          - path: maven/eclipse-temurin-8
+            image: shenlw/maven
+            tags: 3.8.4-jdk-8, 3.8-jdk-8, 3-jdk-8, 3.8.4-eclipse-temurin-8, 3.8-eclipse-temurin-8, 3-eclipse-temurin-8
 
-          - path: jdk/11
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 11,11-eclipse-temurin
+          - path: maven/eclipse-temurin-11
+            image: shenlw/maven
+            tags: 3.8.4-jdk-11, 3.8-jdk-11, 3-jdk-11, 3.8.4-eclipse-temurin-11, 3.8-eclipse-temurin-11, 3-eclipse-temurin-11
 
-          - path: jdk/17
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 17,17-eclipse-temurin
+          - path: maven/eclipse-temurin-17
+            image: shenlw/maven
+            tags: 3.8.4-jdk-17, 3.8-jdk-17, 3-jdk-17, 3.8.4-eclipse-temurin-17, 3.8-eclipse-temurin-17, 3-eclipse-temurin-17
 
     steps:
       - name: Checkout
@@ -46,6 +46,9 @@ jobs:
           echo ::set-output name=docker_image::${DOCKER_IMAGE}
           echo ::set-output name=version::${VERSION}
           echo ::set-output name=tags::${TAGS}
+
+          find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
+          find ./maven -maxdepth 1 -type d -exec cp -r ./maven/mvn-entrypoint.sh {} \;
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1.2.0
@@ -73,7 +76,7 @@ jobs:
           password: "${{ secrets.ACR_PASSWORD }}"
 
       - name: Docker Buildx (push)
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v2.7.0
         if: success() && contains(github.ref, 'master')
         with:
           push: true
