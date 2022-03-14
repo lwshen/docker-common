@@ -16,15 +16,15 @@ jobs:
         docker-file:
           - path: maven/eclipse-temurin-8
             image: registry.cn-shanghai.aliyuncs.com/lwshen/maven
-            tags: 3.8.4-jdk-8, 3.8-jdk-8, 3-jdk-8, 3.8.4-eclipse-temurin-8, 3.8-eclipse-temurin-8, 3-eclipse-temurin-8
+            tags: 3.8.5-jdk-8, 3.8-jdk-8, 3-jdk-8, 3.8.5-eclipse-temurin-8, 3.8-eclipse-temurin-8, 3-eclipse-temurin-8
 
           - path: maven/eclipse-temurin-11
             image: registry.cn-shanghai.aliyuncs.com/lwshen/maven
-            tags: 3.8.4-jdk-11, 3.8-jdk-11, 3-jdk-11, 3.8.4-eclipse-temurin-11, 3.8-eclipse-temurin-11, 3-eclipse-temurin-11
+            tags: 3.8.5-jdk-11, 3.8-jdk-11, 3-jdk-11, 3.8.5-eclipse-temurin-11, 3.8-eclipse-temurin-11, 3-eclipse-temurin-11
 
           - path: maven/eclipse-temurin-17
             image: registry.cn-shanghai.aliyuncs.com/lwshen/maven
-            tags: 3.8.4-jdk-17, 3.8-jdk-17, 3-jdk-17, 3.8.4-eclipse-temurin-17, 3.8-eclipse-temurin-17, 3-eclipse-temurin-17
+            tags: 3.8.5-jdk-17, 3.8-jdk-17, 3-jdk-17, 3.8.5-eclipse-temurin-17, 3.8-eclipse-temurin-17, 3-eclipse-temurin-17
 
     steps:
       - name: Checkout
