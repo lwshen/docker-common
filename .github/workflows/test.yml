@@ -55,3 +55,7 @@ jobs:
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c "mvn --version && java -version && javac -version"
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
+          
+          echo "===================="
+          echo "CODE"
+          docker run -i $(docker build -q code) /bin/sh -c "java -version && javac -version"
