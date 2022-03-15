@@ -58,4 +58,4 @@ jobs:
           
           echo "===================="
           echo "CODE"
-          docker run -i $(docker build -q code) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q code) /bin/sh -c "java -version && javac -version && mvn --version"
