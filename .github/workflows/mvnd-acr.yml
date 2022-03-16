@@ -1,11 +1,11 @@
-name: Build JDK Docker (ACR)
+name: Build mvnd Docker (ACR)
 
 on:
   pull_request:
   push:
     paths:
-      - jdk/**
-      - .github/workflows/jdk-acr.yml
+      - maven-mvnd/**
+      - .github/workflows/mvnd-acr.yml
 
 jobs:
   build:
@@ -14,17 +14,17 @@ jobs:
       fail-fast: false
       matrix:
         docker-file:
-          - path: jdk/8
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 8,8-eclipse-temurin
+          - path: maven-mvnd/eclipse-temurin-8
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/mvnd
+            tags: 0.7.1-jdk-8, 0.7-jdk-8, 0.7.1-eclipse-temurin-8, 0.7-eclipse-temurin-8
 
-          - path: jdk/11
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 11,11-eclipse-temurin
+          - path: maven-mvnd/eclipse-temurin-11
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/mvnd
+            tags: 0.7.1-jdk-11, 0.7-jdk-11, 0.7.1-eclipse-temurin-11, 0.7-eclipse-temurin-11
 
-          - path: jdk/17
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 17,17-eclipse-temurin
+          - path: maven-mvnd/eclipse-temurin-17
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/mvnd
+            tags: 0.7.1-jdk-17, 0.7-jdk-17, 0.7.1-eclipse-temurin-17, 0.7-eclipse-temurin-17
 
     steps:
       - name: Checkout
@@ -46,6 +46,8 @@ jobs:
           echo ::set-output name=docker_image::${DOCKER_IMAGE}
           echo ::set-output name=version::${VERSION}
           echo ::set-output name=tags::${TAGS}
+
+          find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
 
       - name: Docker Buildx (build)
         uses: docker/build-push-action@v2.7.0

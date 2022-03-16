@@ -1,11 +1,11 @@
-name: Build JDK Docker (ACR)
+name: Build Code Docker (ACR)
 
 on:
   pull_request:
   push:
     paths:
-      - jdk/**
-      - .github/workflows/jdk-acr.yml
+      - code/**
+      - .github/workflows/code-acr.yml
 
 jobs:
   build:
@@ -14,21 +14,19 @@ jobs:
       fail-fast: false
       matrix:
         docker-file:
-          - path: jdk/8
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 8,8-eclipse-temurin
-
-          - path: jdk/11
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 11,11-eclipse-temurin
-
-          - path: jdk/17
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
-            tags: 17,17-eclipse-temurin
+          - path: code
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/code
+            tags: latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
+
+      - name: Get current time
+        uses: srfrnk/current-time@master
+        id: current-date
+        with:
+          format: YYYYMMDD
 
       - name: Prepare
         id: prepare
@@ -42,6 +40,8 @@ jobs:
           do
             TAGS="${TAGS},${DOCKER_IMAGE}:${tag}"
           done
+
+          TAGS="${TAGS},${DOCKER_IMAGE}:v${{ steps.current-date.outputs.formattedTime }}"
 
           echo ::set-output name=docker_image::${DOCKER_IMAGE}
           echo ::set-output name=version::${VERSION}
