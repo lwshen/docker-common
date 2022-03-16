@@ -14,6 +14,8 @@ jobs:
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/mvn-entrypoint.sh {} \;
 
+          find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
+
       - name: Build the Docker image
         run: |
           echo "===================="
@@ -55,6 +57,24 @@ jobs:
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c "mvn --version && java -version && javac -version"
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
+
+          echo "===================="
+          echo "MVND && JDK8"
+          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-8) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-8) /bin/sh -c \
+            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
+
+          echo "===================="
+          echo "MVND && JDK11"
+          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-11) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-11) /bin/sh -c \
+            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
+          
+          echo "===================="
+          echo "MVND && JDK17"
+          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-17) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-17) /bin/sh -c \
+            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
           
           echo "===================="
           echo "CODE"
