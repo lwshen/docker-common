@@ -1,4 +1,4 @@
-name: Build Code Docker
+name: Build Code Docker (ACR)
 
 on:
   pull_request:
