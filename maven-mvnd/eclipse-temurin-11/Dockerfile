@@ -14,10 +14,8 @@ RUN apt-get update -qq \
 
 ENV MAVEN_CONFIG "$USER_HOME_DIR/.m2"
 
-COPY mvn-entrypoint.sh /usr/local/bin/mvn-entrypoint.sh
 COPY settings-docker.xml $MAVEN_CONFIG/settings.xml
 
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/bin/mvn-entrypoint.sh"]
 CMD ["mvnd"]
