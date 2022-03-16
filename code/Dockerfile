@@ -10,7 +10,7 @@ FROM ubuntu:20.04
 
 # Install runtime OS package dependencies
 RUN apt-get update -qq && \
-    apt-get install -qq --no-install-recommends build-essential ca-certificates openssl wget curl rsync git openssh-client tar sqlite3 fontconfig libfreetype6 iproute2 libstdc++6 && \
+    apt-get install -qq --no-install-recommends build-essential ca-certificates openssl wget curl rsync git openssh-client tar zip unzip sqlite3 fontconfig libfreetype6 iproute2 libstdc++6 && \
     DEBIAN_FRONTEND=noninteractive apt-get -qq --no-install-recommends install tzdata && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
@@ -38,3 +38,5 @@ COPY --from=maven_builder /usr/local/bin/mvn-entrypoint.sh /usr/local/bin/mvn-en
 COPY --from=maven_builder /root/.m2/settings.xml $MAVEN_CONFIG/settings.xml
 
 RUN ln -s $MAVEN_HOME/bin/mvn /usr/bin/mvn
+
+WORKDIR /workspace
