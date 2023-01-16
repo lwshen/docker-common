@@ -49,9 +49,9 @@ jobs:
 
           TAG_SUFFIXES=$(echo ${{ matrix.docker-file.tag_suffixes }} | tr "," "\n")
           VERSION=${{ env.MVND_VERSION }}
-          major=`echo $version | cut -d. -f1`
-          minor=`echo $version | cut -d. -f2`
-          revision=`echo $version | cut -d. -f3`
+          major=`echo $VERSION | cut -d. -f1`
+          minor=`echo $VERSION | cut -d. -f2`
+          revision=`echo $VERSION | cut -d. -f3`
 
           for tag in $TAG_SUFFIXES
           do
