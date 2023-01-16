@@ -3,7 +3,45 @@ name: Test Docker Image
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  build:
+  build_jdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+
+      - name: Build the Docker image
+        run: |
+          echo "===================="
+          echo "JDK8"
+          docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q jdk/8) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
+
+          echo "===================="
+          echo "JDK11"
+          docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q jdk/11) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
+
+          echo "===================="
+          echo "JDK11"
+          docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q jdk/17) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
+
+  build_jre:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+
+      - name: Build the Docker image
+        run: |
+          echo "===================="
+          echo "JRE8"
+          docker run -i $(docker build -q jre8) /bin/sh -c "java -version"
+
+  build_maven:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -14,32 +52,8 @@ jobs:
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/mvn-entrypoint.sh {} \;
 
-          find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
-
       - name: Build the Docker image
         run: |
-          echo "===================="
-          echo "JDK8"
-          docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/8) /bin/sh -c \
-            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
-          
-          echo "===================="
-          echo "JDK11"
-          docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/11) /bin/sh -c \
-            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
-          
-          echo "===================="
-          echo "JDK11"
-          docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/17) /bin/sh -c \
-            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
-
-          echo "===================="
-          echo "JRE8"
-          docker run -i $(docker build -q jre8) /bin/sh -c "java -version"
-
           echo "===================="
           echo "MAVEN && JDK8"
           docker run -i $(docker build -q maven/eclipse-temurin-8) /bin/sh -c "mvn --version && java -version && javac -version"
@@ -58,24 +72,44 @@ jobs:
           docker run -i $(docker build -q maven/eclipse-temurin-17) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
 
+  build_mvnd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+
+      - name: Prepare
+        run: |
+          find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
+
+      - name: Build the Docker image
+        run: |
           echo "===================="
           echo "MVND && JDK8"
-          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-8) /bin/sh -c "mvnd --version && java -version && javac -version"
-          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-8) /bin/sh -c \
+          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-8) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-8) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
 
           echo "===================="
           echo "MVND && JDK11"
-          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-11) /bin/sh -c "mvnd --version && java -version && javac -version"
-          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-11) /bin/sh -c \
+          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-11) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-11) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
-          
+
           echo "===================="
           echo "MVND && JDK17"
-          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-17) /bin/sh -c "mvnd --version && java -version && javac -version"
-          docker run -i $(docker build -q maven-mvnd/eclipse-temurin-17) /bin/sh -c \
+          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-17) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-17) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
-          
+
+  build_code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+
+      - name: Build the Docker image
+        run: |
           echo "===================="
           echo "CODE"
           docker run -i $(docker build -q code) /bin/sh -c "java -version && javac -version && mvn --version"
