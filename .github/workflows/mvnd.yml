@@ -48,11 +48,16 @@ jobs:
           DOCKER_IMAGE=${{ matrix.docker-file.image }}
 
           TAG_SUFFIXES=$(echo ${{ matrix.docker-file.tag_suffixes }} | tr "," "\n")
-          VERSION=${TAGZ[0]}
+          VERSION=${{ env.MVND_VERSION }}
+          major=`echo $version | cut -d. -f1`
+          minor=`echo $version | cut -d. -f2`
+          revision=`echo $version | cut -d. -f3`
 
           for tag in $TAG_SUFFIXES
           do
-            TAGS="${TAGS},${DOCKER_IMAGE}:${{ env.MVND_VERSION }}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}.${minor}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}.${minor}.${revision}-${tag}"
           done
 
           echo "docker_image=${DOCKER_IMAGE}" >> $GITHUB_OUTPUT
