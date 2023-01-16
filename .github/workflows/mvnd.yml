@@ -109,11 +109,12 @@ jobs:
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Docker Check Manifest
-        if: always() && github.event_name != 'pull_request' && contains(github.ref, 'master')
+        if: always()
         run: |
           for tag in ${{ steps.prepare.outputs.tags }}
           do
-            docker run --rm mplatform/mquery ${{ steps.prepare.outputs.docker_image }}:${tag}
+            echo ${tag}
+            docker run --rm mplatform/mquery ${tag}
           done
 
       - name: Clear

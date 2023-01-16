@@ -98,7 +98,7 @@ jobs:
         run: |
           for tag in ${{ steps.prepare.outputs.tags }}
           do
-            docker run --rm mplatform/mquery ${{ steps.prepare.outputs.docker_image }}:${tag}
+            docker run --rm mplatform/mquery ${tag}
           done
 
       - name: Clear
