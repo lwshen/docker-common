@@ -57,7 +57,9 @@ jobs:
           push: false
           context: ./${{ matrix.docker-file.path }}
           file: ./${{ matrix.docker-file.path }}/Dockerfile
-          build-args: REFRESHED_AT=$(date +%Y-%m-%d)
+          build-args: |
+            REFRESHED_AT=$(date +%Y-%m-%d)
+            MVND_VERSION=0.8.2
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Login to Aliyun Container Registry (ACR)
