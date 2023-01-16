@@ -17,17 +17,17 @@ jobs:
         docker-file:
           - path: maven-mvnd/eclipse-temurin-8
             image: shenlw/mvnd
-            tags: 0.8.2-jdk-8, 0.7-jdk-8, 0.8.2-eclipse-temurin-8, 0.7-eclipse-temurin-8
+            tags: 0.8.2-jdk-8, 0.8-jdk-8, 0.8.2-eclipse-temurin-8, 0.8-eclipse-temurin-8
             platforms: linux/amd64
 
           - path: maven-mvnd/eclipse-temurin-11
             image: shenlw/mvnd
-            tags: 0.8.2-jdk-11, 0.7-jdk-11, 0.8.2-eclipse-temurin-11, 0.7-eclipse-temurin-11
+            tags: 0.8.2-jdk-11, 0.8-jdk-11, 0.8.2-eclipse-temurin-11, 0.8-eclipse-temurin-11
             platforms: linux/amd64
 
           - path: maven-mvnd/eclipse-temurin-17
             image: shenlw/mvnd
-            tags: 0.8.2-jdk-17, 0.7-jdk-17, 0.8.2-eclipse-temurin-17, 0.7-eclipse-temurin-17
+            tags: 0.8.2-jdk-17, 0.8-jdk-17, 0.8.2-eclipse-temurin-17, 0.8-eclipse-temurin-17
             platforms: linux/amd64
 
     steps:
