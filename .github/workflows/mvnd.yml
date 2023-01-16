@@ -55,9 +55,9 @@ jobs:
             TAGS="${TAGS},${DOCKER_IMAGE}:${{ env.MVND_VERSION }}-${tag}"
           done
 
-          echo ::set-output name=docker_image::${DOCKER_IMAGE}
-          echo ::set-output name=version::${VERSION}
-          echo ::set-output name=tags::${TAGS}
+          echo "docker_image=${DOCKER_IMAGE}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
           find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
 
