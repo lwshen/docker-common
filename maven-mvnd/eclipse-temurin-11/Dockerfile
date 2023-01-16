@@ -1,6 +1,6 @@
 FROM shenlw/jdk:11
 
-ARG MVND_VERSION=0.8.0
+ARG MVND_VERSION=0.8.1
 ARG USER_HOME_DIR="/root"
 
 RUN apt-get update -qq \
@@ -8,7 +8,7 @@ RUN apt-get update -qq \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL -o /tmp/mvnd.zip https://github.com/apache/maven-mvnd/releases/download/${MVND_VERSION}/maven-mvnd-${MVND_VERSION}-linux-amd64.zip \
     && unzip /tmp/mvnd.zip -d /tmp  \
-    && mv /tmp/mvnd-${MVND_VERSION}-linux-amd64 /usr/share/mvnd \
+    && mv /tmp/maven-mvnd-${MVND_VERSION}-linux-amd64 /usr/share/mvnd \
     && rm -f /tmp/mvnd.zip \
     && ln -s /usr/share/mvnd/bin/* /usr/bin/
 
