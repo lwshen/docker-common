@@ -17,39 +17,49 @@ jobs:
         docker-file:
           - path: maven-mvnd/eclipse-temurin-8
             image: shenlw/mvnd
-            tags: 0.8.2-jdk-8, 0.8-jdk-8, 0.8.2-eclipse-temurin-8, 0.8-eclipse-temurin-8
+            tag_suffixes: jdk-8, eclipse-temurin-8
             platforms: linux/amd64
 
           - path: maven-mvnd/eclipse-temurin-11
             image: shenlw/mvnd
-            tags: 0.8.2-jdk-11, 0.8-jdk-11, 0.8.2-eclipse-temurin-11, 0.8-eclipse-temurin-11
+            tag_suffixes: jdk-11, eclipse-temurin-11
             platforms: linux/amd64
 
           - path: maven-mvnd/eclipse-temurin-17
             image: shenlw/mvnd
-            tags: 0.8.2-jdk-17, 0.8-jdk-17, 0.8.2-eclipse-temurin-17, 0.8-eclipse-temurin-17
+            tag_suffixes: jdk-17, eclipse-temurin-17
             platforms: linux/amd64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
 
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: "constants.env"
+          expand: "true"
+
       - name: Prepare
         id: prepare
         run: |
           DOCKER_IMAGE=${{ matrix.docker-file.image }}
 
-          TAGZ=$(echo ${{ matrix.docker-file.tags }} | tr "," "\n")
-          VERSION=${TAGZ[0]}
+          TAG_SUFFIXES=$(echo ${{ matrix.docker-file.tag_suffixes }} | tr "," "\n")
+          VERSION=${{ env.MVND_VERSION }}
+          major=`echo $VERSION | cut -d. -f1`
+          minor=`echo $VERSION | cut -d. -f2`
+          revision=`echo $VERSION | cut -d. -f3`
 
-          for tag in $TAGZ
+          for tag in $TAG_SUFFIXES
           do
-            TAGS="${TAGS},${DOCKER_IMAGE}:${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}.${minor}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}.${minor}.${revision}-${tag}"
           done
 
-          echo ::set-output name=docker_image::${DOCKER_IMAGE}
-          echo ::set-output name=version::${VERSION}
-          echo ::set-output name=tags::${TAGS}
+          echo "docker_image=${DOCKER_IMAGE}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
           find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
 
@@ -58,7 +68,7 @@ jobs:
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v1.6.0
+        uses: docker/setup-buildx-action@v2
         with:
           install: true
 
@@ -66,7 +76,7 @@ jobs:
         run: echo ${{ steps.buildx.outputs.platforms }}
 
       - name: Docker Buildx (build)
-        uses: docker/build-push-action@v2.7.0
+        uses: docker/build-push-action@v3
         if: success() && !contains(github.ref, 'master')
         with:
           push: false
@@ -74,7 +84,7 @@ jobs:
           file: ./${{ matrix.docker-file.path }}/Dockerfile
           build-args: |
             REFRESHED_AT=$(date +%Y-%m-%d)
-            MVND_VERSION=0.8.2
+            MVND_VERSION=${{ env.MVND_VERSION }}
           platforms: ${{ matrix.docker-file.platforms }}
           tags: ${{ steps.prepare.outputs.tags }}
 
@@ -86,7 +96,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Docker Buildx (push)
-        uses: docker/build-push-action@v2.7.0
+        uses: docker/build-push-action@v3
         if: success() && contains(github.ref, 'master')
         with:
           push: true
@@ -94,7 +104,7 @@ jobs:
           file: ./${{ matrix.docker-file.path }}/Dockerfile
           build-args: |
             REFRESHED_AT=$(date +%Y-%m-%d)
-            MVND_VERSION=0.8.2
+            MVND_VERSION=${{ env.MVND_VERSION }}
           platforms: ${{ matrix.docker-file.platforms }}
           tags: ${{ steps.prepare.outputs.tags }}
 
