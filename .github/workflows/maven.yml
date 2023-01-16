@@ -110,7 +110,7 @@ jobs:
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Docker Check Manifest
-        if: always() && contains(github.ref, 'master')
+        if: always() && github.event_name != 'pull_request' && contains(github.ref, 'master')
         run: |
           for tag in ${{ steps.prepare.outputs.tags }}
           do

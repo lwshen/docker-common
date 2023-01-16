@@ -96,7 +96,10 @@ jobs:
       - name: Docker Check Manifest
         if: always() && github.event_name != 'pull_request' && contains(github.ref, 'master')
         run: |
-          docker run --rm mplatform/mquery ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.version }}
+          for tag in ${{ steps.prepare.outputs.tags }}
+          do
+            docker run --rm mplatform/mquery ${{ steps.prepare.outputs.docker_image }}:${tag}
+          done
 
       - name: Clear
         if: always() && github.event_name != 'pull_request'
