@@ -23,7 +23,7 @@ COPY --from=jdk17_builder /usr/lib/jvm/java-17 /usr/lib/jvm/java-17
 
 ENV JAVA_HOME="/usr/lib/jvm/default-jvm"
 
-RUN ln -s "/usr/lib/jvm/java-8" "$JAVA_HOME" && \
+RUN ln -s "/usr/lib/jvm/java-11" "$JAVA_HOME" && \
     ln -s "$JAVA_HOME/bin/"* "/usr/bin/" && \
     echo "alias j8='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-8 /usr/lib/jvm/default-jvm'" | tee -a $HOME/.bashrc && \
     echo "alias j11='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-11 /usr/lib/jvm/default-jvm'" | tee -a $HOME/.bashrc && \

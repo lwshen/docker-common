@@ -104,3 +104,11 @@ docker pull shenlw/mvnd:0-jdk-17
 ```
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/mvnd:0-jdk-17
 ```
+
+### [code](code/)
+
+Environment with JDK8, JDK11, JDK17 and maven. Use `j8`, `j11`, `j17` to switch JDK environment.
+
+```
+docker pull shenlw/code:latest
+```
