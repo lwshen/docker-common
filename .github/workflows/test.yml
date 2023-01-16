@@ -78,6 +78,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2.4.0
 
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: "constants.env"
+          expand: "true"
+
       - name: Prepare
         run: |
           find ./maven-mvnd -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
@@ -86,20 +91,20 @@ jobs:
         run: |
           echo "===================="
           echo "MVND && JDK8"
-          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-8) /bin/sh -c "mvnd --version && java -version && javac -version"
-          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-8) /bin/sh -c \
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-8) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-8) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
 
           echo "===================="
           echo "MVND && JDK11"
-          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-11) /bin/sh -c "mvnd --version && java -version && javac -version"
-          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-11) /bin/sh -c \
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-11) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-11) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
 
           echo "===================="
           echo "MVND && JDK17"
-          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-17) /bin/sh -c "mvnd --version && java -version && javac -version"
-          docker run -i $(docker build --build-arg MVND_VERSION=0.8.2 -q maven-mvnd/eclipse-temurin-17) /bin/sh -c \
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-17) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-17) /bin/sh -c \
             "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
 
   build_code:
