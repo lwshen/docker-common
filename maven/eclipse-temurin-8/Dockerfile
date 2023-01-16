@@ -1,6 +1,6 @@
 FROM shenlw/jdk:8
 
-ARG MAVEN_VERSION=3.8.7
+ARG MAVEN_VERSION=latest
 ARG USER_HOME_DIR="/root"
 ARG BASE_URL=https://apache.osuosl.org/maven/maven-3/${MAVEN_VERSION}/binaries
 
