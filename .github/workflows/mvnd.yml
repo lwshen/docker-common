@@ -18,33 +18,41 @@ jobs:
           - path: maven-mvnd/eclipse-temurin-8
             image: shenlw/mvnd
             tags: 0.8.2-jdk-8, 0.8-jdk-8, 0.8.2-eclipse-temurin-8, 0.8-eclipse-temurin-8
+            tag_suffixes: jdk-8, eclipse-temurin-8
             platforms: linux/amd64
 
           - path: maven-mvnd/eclipse-temurin-11
             image: shenlw/mvnd
             tags: 0.8.2-jdk-11, 0.8-jdk-11, 0.8.2-eclipse-temurin-11, 0.8-eclipse-temurin-11
+            tag_suffixes: jdk-11, eclipse-temurin-11
             platforms: linux/amd64
 
           - path: maven-mvnd/eclipse-temurin-17
             image: shenlw/mvnd
             tags: 0.8.2-jdk-17, 0.8-jdk-17, 0.8.2-eclipse-temurin-17, 0.8-eclipse-temurin-17
+            tag_suffixes: jdk-17, eclipse-temurin-17
             platforms: linux/amd64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
 
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: "constants.env"
+          expand: "true"
+
       - name: Prepare
         id: prepare
         run: |
           DOCKER_IMAGE=${{ matrix.docker-file.image }}
 
-          TAGZ=$(echo ${{ matrix.docker-file.tags }} | tr "," "\n")
+          TAG_SUFFIXES=$(echo ${{ matrix.docker-file.tag_suffixes }} | tr "," "\n")
           VERSION=${TAGZ[0]}
 
-          for tag in $TAGZ
+          for tag in $TAG_SUFFIXES
           do
-            TAGS="${TAGS},${DOCKER_IMAGE}:${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${{ env.MVND_VERSION }}-${tag}"
           done
 
           echo ::set-output name=docker_image::${DOCKER_IMAGE}
