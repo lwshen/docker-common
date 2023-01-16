@@ -1,6 +1,6 @@
 FROM shenlw/jdk:8
 
-ARG MVND_VERSION=0.8.2
+ARG MVND_VERSION=latest
 ARG USER_HOME_DIR="/root"
 
 RUN apt-get update -qq \
