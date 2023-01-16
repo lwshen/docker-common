@@ -17,36 +17,46 @@ jobs:
         docker-file:
           - path: maven/eclipse-temurin-8
             image: registry.cn-shanghai.aliyuncs.com/lwshen/maven
-            tags: 3.8.7-jdk-8, 3.8-jdk-8, 3-jdk-8, 3.8.7-eclipse-temurin-8, 3.8-eclipse-temurin-8, 3-eclipse-temurin-8
+            tag_suffixes: jdk-8, eclipse-temurin-8
 
           - path: maven/eclipse-temurin-11
             image: registry.cn-shanghai.aliyuncs.com/lwshen/maven
-            tags: 3.8.7-jdk-11, 3.8-jdk-11, 3-jdk-11, 3.8.7-eclipse-temurin-11, 3.8-eclipse-temurin-11, 3-eclipse-temurin-11
+            tag_suffixes: jdk-11, eclipse-temurin-11
 
           - path: maven/eclipse-temurin-17
             image: registry.cn-shanghai.aliyuncs.com/lwshen/maven
-            tags: 3.8.7-jdk-17, 3.8-jdk-17, 3-jdk-17, 3.8.7-eclipse-temurin-17, 3.8-eclipse-temurin-17, 3-eclipse-temurin-17
+            tag_suffixes: jdk-17, eclipse-temurin-17
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
+
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: "constants.env"
+          expand: "true"
 
       - name: Prepare
         id: prepare
         run: |
           DOCKER_IMAGE=${{ matrix.docker-file.image }}
 
-          TAGZ=$(echo ${{ matrix.docker-file.tags }} | tr "," "\n")
-          VERSION=${TAGZ[0]}
+          TAG_SUFFIXES=$(echo ${{ matrix.docker-file.tag_suffixes }} | tr "," "\n")
+          VERSION=${{ env.MAVEN_VERSION }}
+          major=`echo $VERSION | cut -d. -f1`
+          minor=`echo $VERSION | cut -d. -f2`
+          revision=`echo $VERSION | cut -d. -f3`
 
-          for tag in $TAGZ
+          for tag in $TAG_SUFFIXES
           do
-            TAGS="${TAGS},${DOCKER_IMAGE}:${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}.${minor}-${tag}"
+            TAGS="${TAGS},${DOCKER_IMAGE}:${major}.${minor}.${revision}-${tag}"
           done
 
-          echo ::set-output name=docker_image::${DOCKER_IMAGE}
-          echo ::set-output name=version::${VERSION}
-          echo ::set-output name=tags::${TAGS}
+          echo "docker_image=${DOCKER_IMAGE}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/settings-docker.xml {} \;
           find ./maven -maxdepth 1 -type d -exec cp -r ./maven/mvn-entrypoint.sh {} \;
@@ -58,7 +68,9 @@ jobs:
           push: false
           context: ./${{ matrix.docker-file.path }}
           file: ./${{ matrix.docker-file.path }}/Dockerfile
-          build-args: REFRESHED_AT=$(date +%Y-%m-%d)
+          build-args: |
+            REFRESHED_AT=$(date +%Y-%m-%d)
+            MAVEN_VERSION=${{ env.MAVEN_VERSION }}
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Login to Aliyun Container Registry (ACR)
@@ -76,7 +88,9 @@ jobs:
           push: true
           context: ./${{ matrix.docker-file.path }}
           file: ./${{ matrix.docker-file.path }}/Dockerfile
-          build-args: REFRESHED_AT=$(date +%Y-%m-%d)
+          build-args: |
+            REFRESHED_AT=$(date +%Y-%m-%d)
+            MAVEN_VERSION=${{ env.MAVEN_VERSION }}
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Docker Check Manifest
