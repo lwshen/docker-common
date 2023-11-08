@@ -1,8 +1,8 @@
 FROM ubuntu:18.04
 
 ENV JAVA_VERSION=17 \
-    JAVA_UPDATE=17.0.7 \
-    JAVA_BUILD=7 \
+    JAVA_UPDATE=17.0.8.1 \
+    JAVA_BUILD=1 \
     JAVA_HOME="/usr/lib/jvm/default-jvm"
 
 ENV LC_ALL=C.UTF-8
