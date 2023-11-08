@@ -32,7 +32,7 @@ jobs:
           - path: jdk/21
             image: shenlw/jdk
             tags: 21,21-eclipse-temurin
-            platforms: linux/amd64,linux/arm64,linux/arm/v7
+            platforms: linux/amd64,linux/arm64
 
     steps:
       - name: Checkout
