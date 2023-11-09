@@ -30,6 +30,11 @@ jobs:
             tag_suffixes: jdk-17, eclipse-temurin-17
             platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/s390x
 
+          - path: maven/eclipse-temurin-21
+            image: shenlw/maven
+            tag_suffixes: jdk-21, eclipse-temurin-21
+            platforms: linux/amd64,linux/arm64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
