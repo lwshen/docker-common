@@ -17,14 +17,22 @@ jobs:
           - path: jdk/8
             image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
             tags: 8,8-eclipse-temurin
+            platforms: linux/amd64,linux/arm64
 
           - path: jdk/11
             image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
             tags: 11,11-eclipse-temurin
+            platforms: linux/amd64,linux/arm64
 
           - path: jdk/17
             image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
             tags: 17,17-eclipse-temurin
+            platforms: linux/amd64,linux/arm64
+
+          - path: jdk/21
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/jdk
+            tags: 21,21-eclipse-temurin
+            platforms: linux/amd64,linux/arm64
 
     steps:
       - name: Checkout
