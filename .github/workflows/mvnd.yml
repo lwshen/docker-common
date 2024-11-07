@@ -7,6 +7,7 @@ on:
     paths:
       - maven-mvnd/**
       - .github/workflows/mvnd.yml
+      - constants.env
 
 jobs:
   build:
