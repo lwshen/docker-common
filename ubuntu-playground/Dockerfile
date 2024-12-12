@@ -11,4 +11,4 @@ RUN apt-get update \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install NextTrace
-RUN curl https://nxtrace.org/nt | bash
+RUN curl https://nxtrace.org/nt | sed 's/--connect-timeout 1.5/--connect-timeout 10/g' | bash
