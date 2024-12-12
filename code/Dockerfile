@@ -26,6 +26,7 @@ COPY --from=jdk21_builder /usr/lib/jvm/java-21 /usr/lib/jvm/java-21
 
 ENV JAVA_HOME="/usr/lib/jvm/default-jvm"
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN ln -s "/usr/lib/jvm/java-11" "$JAVA_HOME" && \
     ln -s "$JAVA_HOME/bin/"* "/usr/bin/" && \
     echo "alias j8='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-8 /usr/lib/jvm/default-jvm'" | tee -a $HOME/.bashrc && \
