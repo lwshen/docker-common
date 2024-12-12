@@ -6,4 +6,4 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/source
 RUN apt-get update && apt-get install -y curl
 
 # Install NextTrace
-RUN curl nxtrace.org/nt | bash
+RUN curl https://nxtrace.org/nt | bash
