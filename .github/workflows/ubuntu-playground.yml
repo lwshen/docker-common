@@ -3,10 +3,13 @@ name: Build Ubuntu-Playground Docker
 on:
   workflow_dispatch:
   pull_request:
-  push:
     paths:
       - ubuntu-playground/**
       - .github/workflows/ubuntu-playground.yml
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
