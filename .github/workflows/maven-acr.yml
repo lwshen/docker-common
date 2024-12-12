@@ -3,11 +3,14 @@ name: Build Maven Docker (ACR)
 on:
   workflow_dispatch:
   pull_request:
-  push:
     paths:
       - maven/**
       - .github/workflows/maven-acr.yml
       - constants.env
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:

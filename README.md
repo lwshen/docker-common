@@ -20,7 +20,6 @@ docker pull shenlw/jdk:8
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:8
 ```
 
-
 ### [jdk11](jdk/11/)
 
 ```
@@ -133,6 +132,7 @@ docker pull shenlw/mvnd:0-jdk-21
 
 ```
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/mvnd:0-jdk-21
+```
 
 ### [code](code/)
 
@@ -144,4 +144,16 @@ docker pull shenlw/code:latest
 
 ```
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/code:latest
+```
+
+### [ubuntu-playground](ubuntu-playground/)
+
+Ubuntu Playground (NO GUI) is a place where you can play with ubuntu command.
+
+```
+docker pull shenlw/ubuntu-playground:latest
+```
+
+```
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/ubuntu-playground:latest
 ```

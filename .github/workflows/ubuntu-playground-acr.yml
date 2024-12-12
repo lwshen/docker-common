@@ -1,11 +1,11 @@
-name: Build Code Docker (ACR)
+name: Build Ubuntu-Playground Docker (ACR)
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
-      - code/**
-      - .github/workflows/code-acr.yml
+      - ubuntu-playground/**
+      - .github/workflows/ubuntu-playground-acr.yml
   push:
     branches:
       - main
@@ -18,8 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         docker-file:
-          - path: code
-            image: registry.cn-shanghai.aliyuncs.com/lwshen/code
+          - path: ubuntu-playground
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/ubuntu-playground
             tags: latest
 
     steps:

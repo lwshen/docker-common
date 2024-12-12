@@ -2,10 +2,13 @@ name: Build JDK Docker
 
 on:
   pull_request:
-  push:
     paths:
       - jdk/**
       - .github/workflows/jdk.yml
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:

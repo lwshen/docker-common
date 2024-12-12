@@ -3,11 +3,14 @@ name: Build mvnd Docker
 on:
   workflow_dispatch:
   pull_request:
-  push:
     paths:
       - maven-mvnd/**
       - .github/workflows/mvnd.yml
       - constants.env
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:

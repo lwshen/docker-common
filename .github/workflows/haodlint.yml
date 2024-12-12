@@ -9,6 +9,9 @@ jobs:
       - uses: actions/checkout@v2.4.0
       - run: brew install hadolint
       - run: |
-          hadolint jdk/{8,11,17}/*Dockerfile
-          hadolint maven/eclipse-temurin-{8,11,17}/*Dockerfile
+          hadolint jdk/{8,11,17,21}/*Dockerfile
+          hadolint maven/eclipse-temurin-{8,11,17,21}/*Dockerfile
+          hadolint maven-mvnd/eclipse-temurin-{8,11,17,21}/*Dockerfile
           hadolint jre8/*Dockerfile
+          hadolint code/*Dockerfile
+          hadolint ubuntu-playground/*Dockerfile

@@ -2,10 +2,13 @@ name: Build JDK Docker (ACR)
 
 on:
   pull_request:
-  push:
     paths:
       - jdk/**
       - .github/workflows/jdk-acr.yml
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
