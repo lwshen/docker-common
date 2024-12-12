@@ -24,9 +24,15 @@ jobs:
             "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
           echo "===================="
-          echo "JDK11"
+          echo "JDK17"
           docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
           docker run -i $(docker build -q jdk/17) /bin/sh -c \
+            "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
+
+          echo "===================="
+          echo "JDK21"
+          docker run -i $(docker build -q jdk/21) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build -q jdk/21) /bin/sh -c \
             "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
   build_jre:
@@ -63,19 +69,25 @@ jobs:
           echo "MAVEN && JDK8"
           docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-8) /bin/sh -c "mvn --version && java -version && javac -version"
           docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-8) /bin/sh -c \
-            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvn -q package -f vertx-maven-starter/pom.xml"
 
           echo "===================="
           echo "MAVEN && JDK11"
           docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-11) /bin/sh -c "mvn --version && java -version && javac -version"
           docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-11) /bin/sh -c \
-            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvn -q package -f vertx-maven-starter/pom.xml"
 
           echo "===================="
           echo "MAVEN && JDK17"
           docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-17) /bin/sh -c "mvn --version && java -version && javac -version"
           docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-17) /bin/sh -c \
-            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvn -q package -f maven-simple/pom.xml"
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvn -q package -f vertx-maven-starter/pom.xml"
+
+          echo "===================="
+          echo "MAVEN && JDK21"
+          docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-21) /bin/sh -c "mvn --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MAVEN_VERSION=${{ env.MAVEN_VERSION }} -q maven/eclipse-temurin-21) /bin/sh -c \
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvn -q package -f vertx-maven-starter/pom.xml"
 
   build_mvnd:
     runs-on: ubuntu-latest
@@ -98,19 +110,25 @@ jobs:
           echo "MVND && JDK8"
           docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-8) /bin/sh -c "mvnd --version && java -version && javac -version"
           docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-8) /bin/sh -c \
-            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvnd -q package -f vertx-maven-starter/pom.xml"
 
           echo "===================="
           echo "MVND && JDK11"
           docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-11) /bin/sh -c "mvnd --version && java -version && javac -version"
           docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-11) /bin/sh -c \
-            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvnd -q package -f vertx-maven-starter/pom.xml"
 
           echo "===================="
           echo "MVND && JDK17"
           docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-17) /bin/sh -c "mvnd --version && java -version && javac -version"
           docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-17) /bin/sh -c \
-            "rm /root/.m2/settings.xml && git clone https://github.com/jitpack/maven-simple.git && mvnd -q package -f maven-simple/pom.xml"
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvnd -q package -f vertx-maven-starter/pom.xml"
+
+          echo "===================="
+          echo "MVND && JDK21"
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-21) /bin/sh -c "mvnd --version && java -version && javac -version"
+          docker run -i $(docker build --build-arg MVND_VERSION=${{ env.MVND_VERSION }} -q maven-mvnd/eclipse-temurin-21) /bin/sh -c \
+            "rm /root/.m2/settings.xml && git clone https://github.com/vert-x3/vertx-maven-starter.git && mvnd -q package -f vertx-maven-starter/pom.xml"
 
   build_code:
     runs-on: ubuntu-latest
