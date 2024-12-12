@@ -1,13 +1,13 @@
 FROM ubuntu:24.04
 
 # Use Tsinghua University mirror
-RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/ubuntu.sources \
-  && sed -i 's/ports.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/ubuntu.sources
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && apt-get install -y --no-install-recommends curl wget ca-certificates iputils-ping telnet \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
+COPY ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources
+ 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install NextTrace
