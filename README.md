@@ -146,7 +146,7 @@ docker pull shenlw/code:latest
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/code:latest
 ```
 
-### [ubuntu-playground](ubuntu-ground/)
+### [ubuntu-playground](ubuntu-playground/)
 
 Ubuntu Playground (NO GUI) is a place where you can play with ubuntu command.
 
