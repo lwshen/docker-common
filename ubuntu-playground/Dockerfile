@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 # Use Tsinghua University mirror
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl wget ca-certificates iputils-ping telnet \
+  && apt-get install -y --no-install-recommends curl wget ca-certificates iputils-ping telnet iperf3 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
