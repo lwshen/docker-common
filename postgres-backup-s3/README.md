@@ -10,35 +10,26 @@ Docker:
 $ docker run -e S3_ACCESS_KEY_ID=key -e S3_SECRET_ACCESS_KEY=secret -e S3_BUCKET=my-bucket -e S3_PREFIX=backup -e POSTGRES_DATABASE=dbname -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_HOST=localhost shenlw/postgres-backup-s3
 ```
 
-Docker Compose:
+## Environment variables
 
-```yaml
-postgres:
-  image: postgres
-  environment:
-    POSTGRES_USER: user
-    POSTGRES_PASSWORD: password
-
-pgbackups3:
-  image: shenlw/postgres-backup-s3
-  depends_on:
-    - postgres
-  links:
-    - postgres
-  environment:
-    SCHEDULE: "@daily"
-    S3_REGION: region
-    S3_ACCESS_KEY_ID: key
-    S3_SECRET_ACCESS_KEY: secret
-    S3_BUCKET: my-bucket
-    S3_PREFIX: backup
-    POSTGRES_BACKUP_ALL: "false"
-    POSTGRES_HOST: host
-    POSTGRES_DATABASE: dbname
-    POSTGRES_USER: user
-    POSTGRES_PASSWORD: password
-    POSTGRES_EXTRA_OPTS: "--schema=public --blobs"
-```
+| Variable             | Default   | Required | Description                                                                                                              |
+| -------------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| POSTGRES_DATABASE    |           | Y        | Database you want to backup or 'all' to backup everything                                                                |
+| POSTGRES_HOST        |           | Y        | The PostgreSQL host                                                                                                      |
+| POSTGRES_PORT        | 5432      |          | The PostgreSQL port                                                                                                      |
+| POSTGRES_USER        |           | Y        | The PostgreSQL user                                                                                                      |
+| POSTGRES_PASSWORD    |           | Y        | The PostgreSQL password                                                                                                  |
+| POSTGRES_EXTRA_OPTS  |           |          | Extra postgresql options                                                                                                 |
+| S3_ACCESS_KEY_ID     |           | Y        | Your AWS access key                                                                                                      |
+| S3_SECRET_ACCESS_KEY |           | Y        | Your AWS secret key                                                                                                      |
+| S3_BUCKET            |           | Y        | Your AWS S3 bucket path                                                                                                  |
+| S3_PREFIX            | backup    |          | Path prefix in your bucket                                                                                               |
+| S3_REGION            | us-west-1 |          | The AWS S3 bucket region                                                                                                 |
+| S3_ENDPOINT          |           |          | The AWS Endpoint URL, for S3 Compliant APIs such as [minio](https://minio.io)                                            |
+| S3_S3V4              | no        |          | Set to `yes` to enable AWS Signature Version 4, required for [minio](https://minio.io) servers                           |
+| SCHEDULE             |           |          | Backup schedule time, see explainatons below                                                                             |
+| ENCRYPTION_PASSWORD  |           |          | Password to encrypt the backup. Can be decrypted using `openssl aes-256-cbc -d -in backup.sql.gz.enc -out backup.sql.gz` |
+| DELETE_OLDER_THAN    |           |          | Delete old backups, see explanation and warning below                                                                    |
 
 ### Automatic Periodic Backups
 
@@ -46,25 +37,11 @@ You can additionally set the `SCHEDULE` environment variable like `-e SCHEDULE="
 
 More information about the scheduling can be found [here](https://pkg.go.dev/github.com/robfig/cron?utm_source=godoc#hdr-Predefined_schedules).
 
-### Backup File Name / Path
+### Delete Old Backups
 
-By default, if `POSTGRES_BACKUP_ALL` is true, the dump file will be put at `<S3_PREFIX=''>/all_<timestamp>.sql.gz`. When using `POSTGRES_DATABASE`, each database listed will be backed up to the object path `<S3_PREFIX=''>/<database>_<timestamp>.sql.gz`.
+You can additionally set the `DELETE_OLDER_THAN` environment variable like `-e DELETE_OLDER_THAN="30 days ago"` to delete old backups.
 
-If you wish to make these filenames static, you can use the `S3_FILE_NAME` variable, which will change these formats to `<S3_PREFIX=''>/<S3_FILE_NAME>.sql.gz` or `<S3_PREFIX=''>/<S3_FILE_NAME>_<database>.sql.gz` accordingly.
-
-### Backup All Databases
-
-You can backup all available databases by setting `POSTGRES_BACKUP_ALL="true"`.
-
-Single archive with the name `all_<timestamp>.sql.gz` will be uploaded to S3
-
-### Endpoints for S3
-
-An Endpoint is the URL of the entry point for an AWS web service or S3 Compitable Storage Provider.
-
-You can specify an alternate endpoint by setting `S3_ENDPOINT` environment variable like `protocol://endpoint`
-
-**Note:** S3 Compitable Storage Provider requires `S3_ENDPOINT` environment variable
+WARNING: this will delete all files in the S3_PREFIX path, not just those created by this script.
 
 ### Encryption
 
