@@ -1,7 +1,7 @@
 FROM alpine:3.15
 LABEL maintainer="Johannes Schickling <schickling.j@gmail.com>"
 
-ADD install.sh install.sh
+COPY install.sh install.sh
 RUN sh install.sh && rm install.sh
 
 ENV POSTGRES_DATABASE **None**
@@ -16,6 +16,6 @@ ENV S3_REGION us-west-1
 ENV S3_PATH 'backup'
 ENV DROP_PUBLIC 'no'
 
-ADD restore.sh restore.sh
+COPY restore.sh restore.sh
 
 CMD ["sh", "restore.sh"]

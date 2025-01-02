@@ -1,7 +1,7 @@
 FROM webdevops/go-crond:master-alpine
 LABEL maintainer="Johannes Schickling <schickling.j@gmail.com>"
 
-ADD install.sh install.sh
+COPY install.sh install.sh
 RUN sh install.sh && rm install.sh
 
 ENV POSTGRES_DATABASE **None**
@@ -21,8 +21,8 @@ ENV S3_S3V4 no
 ENV SCHEDULE **None**
 ENV ENCRYPTION_PASSWORD **None**
 
-ADD run.sh run.sh
-ADD backup.sh backup.sh
+COPY run.sh run.sh
+COPY backup.sh backup.sh
 
 ENTRYPOINT []
 CMD ["sh", "run.sh"]
