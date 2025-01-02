@@ -1,6 +1,22 @@
-FROM webdevops/go-crond:master-alpine
+FROM alpine:3.21 AS build
 
 WORKDIR /app
+
+RUN apk update \
+	&& apk upgrade \
+	&& apk add go
+
+COPY main.go /app/main.go
+
+RUN go mod init github.com/itbm/postgresql-backup-s3 \
+	&& go get github.com/robfig/cron/v3 \
+	&& go build -o out/go-cron
+
+FROM alpine:3.21
+
+WORKDIR /app
+
+COPY --from=build /app/out/go-cron /usr/local/bin/go-cron
 
 COPY install.sh install.sh
 RUN sh install.sh && rm install.sh
