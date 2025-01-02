@@ -15,3 +15,5 @@ jobs:
           hadolint jre8/*Dockerfile
           hadolint code/*Dockerfile
           hadolint ubuntu-playground/*Dockerfile
+          hadolint postgres-backup-s3/*Dockerfile
+          hadolint postgres-restore-s3/*Dockerfile
