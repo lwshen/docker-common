@@ -4,8 +4,11 @@
 set -eux
 
 apt-get update -qq
-snap install aws-cli --classic
-apt-get install -qq --no-install-recommends openssl postgresql-client
+apt-get install -qq --no-install-recommends openssl postgresql-client unzip
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+./aws/install
 
 # cleanup
 rm -rf /var/lib/apt/lists/*
