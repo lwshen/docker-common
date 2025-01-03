@@ -10,6 +10,9 @@ on:
     branches:
       - main
       - master
+    paths:
+      - ubuntu-playground/**
+      - .github/workflows/ubuntu-playground-acr.yml
 
 jobs:
   build:
@@ -78,11 +81,6 @@ jobs:
           file: ./${{ matrix.docker-file.path }}/Dockerfile
           build-args: REFRESHED_AT=$(date +%Y-%m-%d)
           tags: ${{ steps.prepare.outputs.tags }}
-
-      - name: Docker Check Manifest
-        if: always() && github.event_name != 'pull_request' && contains(github.ref, 'master')
-        run: |
-          docker run --rm mplatform/mquery ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.version }}
 
       - name: Clear
         if: always() && github.event_name != 'pull_request'
