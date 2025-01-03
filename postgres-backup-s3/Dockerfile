@@ -8,7 +8,7 @@ RUN go mod init github.com/itbm/postgresql-backup-s3 \
 	&& go get github.com/robfig/cron/v3 \
 	&& go build -o out/go-cron
 
-FROM alpine:3.21
+FROM ubuntu:24.04
 
 WORKDIR /app
 

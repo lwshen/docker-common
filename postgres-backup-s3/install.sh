@@ -1,11 +1,10 @@
 #! /bin/sh
 
 # exit if a command fails
-set -eo pipefail
+set -eux
 
-apk update
-apk add openssl aws-cli
-apk add postgresql-client
+apt-get update -qq
+apt-get install -qq --no-install-recommends openssl aws-cli postgresql-client
 
 # cleanup
-rm -rf /var/cache/apk/*
+rm -rf /var/lib/apt/lists/*

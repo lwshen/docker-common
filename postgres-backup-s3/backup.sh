@@ -1,7 +1,6 @@
 #! /bin/sh
 
-set -e
-set -o pipefail
+set -eux
 
 >&2 echo "-----"
 
