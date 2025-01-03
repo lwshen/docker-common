@@ -11,6 +11,10 @@ on:
     branches:
       - main
       - master
+    paths:
+      - maven/**
+      - .github/workflows/maven-acr.yml
+      - constants.env
 
 jobs:
   build:
@@ -100,14 +104,6 @@ jobs:
             REFRESHED_AT=$(date +%Y-%m-%d)
             MAVEN_VERSION=${{ env.MAVEN_VERSION }}
           tags: ${{ steps.prepare.outputs.tags }}
-
-      - name: Docker Check Manifest
-        if: always() && github.event_name != 'pull_request' && contains(github.ref, 'master')
-        run: |
-          for tag in $(echo ${{ steps.prepare.outputs.tags }} | tr "," "\n")
-          do
-            docker run --rm mplatform/mquery ${tag}
-          done
 
       - name: Clear
         if: always() && github.event_name != 'pull_request'
