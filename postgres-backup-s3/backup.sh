@@ -83,7 +83,7 @@ fi
 
 echo "Uploading dump to $S3_BUCKET"
 
-cat $SRC_FILE | aws $AWS_ARGS s3 cp - s3://$S3_BUCKET/$S3_PREFIX/$DEST_FILE --debug || exit 2
+cat $SRC_FILE | aws $AWS_ARGS s3 cp - s3://$S3_BUCKET/$S3_PREFIX/$DEST_FILE --checksum-algorithm CRC32 || exit 2
 
 if [ "${DELETE_OLDER_THAN}" != "**None**" ]; then
   >&2 echo "Checking for files older than ${DELETE_OLDER_THAN}"
