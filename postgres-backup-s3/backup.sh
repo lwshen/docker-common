@@ -83,7 +83,7 @@ fi
 
 echo "Uploading dump to $S3_BUCKET"
 
-aws $AWS_ARGS s3 cp "$SRC_FILE" "s3://$S3_BUCKET/$S3_PREFIX/$DEST_FILE" || exit 2
+aws $AWS_ARGS s3 cp "$SRC_FILE" "s3://$S3_BUCKET/$S3_PREFIX/$DEST_FILE" --debug || exit 2
 
 if [ "${DELETE_OLDER_THAN}" != "**None**" ]; then
   >&2 echo "Checking for files older than ${DELETE_OLDER_THAN}"
