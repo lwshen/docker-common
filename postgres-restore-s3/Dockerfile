@@ -1,4 +1,4 @@
-FROM alpine:3.15
+FROM ubuntu:24.04
 
 WORKDIR /app
 
