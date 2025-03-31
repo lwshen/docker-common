@@ -1,7 +1,7 @@
 FROM ubuntu:18.04
 
 ENV JAVA_VERSION=8 \
-    JAVA_UPDATE=432 \
+    JAVA_UPDATE=442 \
     JAVA_BUILD=06 \
     JAVA_HOME="/usr/lib/jvm/default-jvm"
 
