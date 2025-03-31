@@ -1,6 +1,7 @@
 name: Build JDK Docker (ACR)
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - jdk/**
