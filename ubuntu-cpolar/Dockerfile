@@ -15,6 +15,8 @@ RUN mkdir /var/run/sshd && \
     chmod 700 /root/.ssh && \
     echo "PubkeyAuthentication yes\nPasswordAuthentication no\nChallengeResponseAuthentication no\nPermitRootLogin yes" >> /etc/ssh/sshd_config
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+    
 # Install cpolar
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
