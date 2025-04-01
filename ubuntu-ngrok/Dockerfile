@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install necessary packages
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python-is-python3 python3-venv python3-pip curl sudo wget htop vim git openssh-server \
+    && apt-get install -y --no-install-recommends python-is-python3 python3-venv python3-pip curl unzip wget htop vim git openssh-server \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
