@@ -158,6 +158,7 @@ Backup PostgreSQL databases to S3.
 
 ```
 docker pull shenlw/postgres-backup-s3:latest
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/postgres-backup-s3:latest
 ```
 
 #### [postgres-restore-s3](postgres-restore-s3/)
@@ -166,6 +167,7 @@ Restore PostgreSQL databases from S3 backups.
 
 ```
 docker pull shenlw/postgres-restore-s3:latest
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/postgres-restore-s3:latest
 ```
 
 #### [postgres-restore-file](postgres-restore-file/)
@@ -174,6 +176,7 @@ Restore PostgreSQL databases from local backup files.
 
 ```
 docker pull shenlw/postgres-restore-file:latest
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/postgres-restore-file:latest
 ```
 
 ## Development
