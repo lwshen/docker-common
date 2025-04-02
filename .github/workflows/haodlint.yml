@@ -19,3 +19,4 @@ jobs:
           hadolint ubuntu-cpolar/*Dockerfile
           hadolint postgres-backup-s3/*Dockerfile
           hadolint postgres-restore-s3/*Dockerfile
+          hadolint postgres-restore-file/*Dockerfile
