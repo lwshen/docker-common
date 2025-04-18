@@ -355,6 +355,10 @@ jobs:
           name: backup-file
           path: backup
 
+      - name: Extract backup file
+        run: |
+          ls -la backup
+
       - name: Build postgres-restore-file image
         run: |
           docker build -t postgres-restore-file:test postgres-restore-file
