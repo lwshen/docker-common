@@ -358,6 +358,8 @@ jobs:
       - name: Extract backup file
         run: |
           ls -la backup
+          gunzip backup/test_*.sql.gz
+          ls -la backup
 
       - name: Build postgres-restore-file image
         run: |
