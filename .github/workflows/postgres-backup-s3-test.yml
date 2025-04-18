@@ -27,8 +27,7 @@ jobs:
           MINIO_SECRET_KEY: minio_secret_key
         ports:
           - 9000:9000
-        options: >-
-          --command server /data
+        options: server /data
 
     steps:
       - name: Checkout
