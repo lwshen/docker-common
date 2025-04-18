@@ -43,7 +43,7 @@ jobs:
 
       - name: Setup test database
         run: |
-          apt-get install -y postgresql-client
+          sudo apt-get update && sudo apt-get install -y postgresql-client
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT);"
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('test_data_1'), ('test_data_2'), ('test_data_3');"
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "SELECT * FROM test_table;" 
