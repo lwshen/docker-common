@@ -24,29 +24,34 @@ docker build --build-arg MAVEN_VERSION=3.9.9 -t maven:custom .
 ### Java
 
 #### [jre8](jre8/)
+
 ```
 docker pull shenlw/jre:8
 ```
 
 #### [jdk8](jdk/8/)
+
 ```
 docker pull shenlw/jdk:8
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:8
 ```
 
 #### [jdk11](jdk/11/)
+
 ```
 docker pull shenlw/jdk:11
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:11
 ```
 
 #### [jdk17](jdk/17/)
+
 ```
 docker pull shenlw/jdk:17
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:17
 ```
 
 #### [jdk21](jdk/21/)
+
 ```
 docker pull shenlw/jdk:21
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:21
@@ -64,6 +69,7 @@ Maven images with different JDK versions:
 - **JDK 21**: `docker pull shenlw/maven:3-jdk-21`
 
 Also available on Aliyun registry:
+
 ```
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/maven:3-jdk-<version>
 ```
@@ -78,6 +84,7 @@ Maven Daemon images with different JDK versions:
 - **JDK 21**: `docker pull shenlw/mvnd:0-jdk-21`
 
 Also available on Aliyun registry:
+
 ```
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/mvnd:0-jdk-<version>
 ```
@@ -116,6 +123,7 @@ docker pull registry.cn-shanghai.aliyuncs.com/lwshen/ubuntu-ngrok:latest
 ```
 
 **Usage:**
+
 ```bash
 docker run -d \
   -e SSH_PUBLIC_KEY="your_ssh_public_key" \
@@ -133,6 +141,7 @@ docker pull registry.cn-shanghai.aliyuncs.com/lwshen/ubuntu-cpolar:latest
 ```
 
 **Usage:**
+
 ```bash
 docker run -d \
   -e SSH_PUBLIC_KEY="your_ssh_public_key" \
@@ -149,6 +158,7 @@ Backup PostgreSQL databases to S3.
 
 ```
 docker pull shenlw/postgres-backup-s3:latest
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/postgres-backup-s3:latest
 ```
 
 #### [postgres-restore-s3](postgres-restore-s3/)
@@ -157,9 +167,19 @@ Restore PostgreSQL databases from S3 backups.
 
 ```
 docker pull shenlw/postgres-restore-s3:latest
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/postgres-restore-s3:latest
+```
+
+#### [postgres-restore-file](postgres-restore-file/)
+
+Restore PostgreSQL databases from local backup files.
+
+```
+docker pull shenlw/postgres-restore-file:latest
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/postgres-restore-file:latest
 ```
 
 ## Development
 
-* Dockerfile linting: `hadolint <dockerfile-path>`
-* Version management: Update constants.env for centralized version control
+- Dockerfile linting: `hadolint <dockerfile-path>`
+- Version management: Update constants.env for centralized version control
