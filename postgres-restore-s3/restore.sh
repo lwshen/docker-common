@@ -1,7 +1,6 @@
 #! /bin/sh
 
-set -eo pipefail
-set -o pipefail
+set -eux
 
 if [ "${S3_ACCESS_KEY_ID}" = "**None**" ]; then
   echo "You need to set the S3_ACCESS_KEY_ID environment variable."
