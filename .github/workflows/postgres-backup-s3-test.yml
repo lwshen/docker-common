@@ -19,7 +19,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       minio:
         image: minio/minio:edge-cicd
         env:
@@ -46,7 +46,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-client
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT);"
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('test_data_1'), ('test_data_2'), ('test_data_3');"
-          PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "SELECT * FROM test_table;" 
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "SELECT * FROM test_table;"
 
       - name: Build postgres-backup-s3 image
         run: |
@@ -70,7 +70,15 @@ jobs:
       - name: Verify backup exists in S3
         run: |
           ./mc ls myminio/test-bucket/backup/
-          
+          ./mc cp -r myminio/test-bucket/backup/ ./backup/
+
+      - name: Archive backup file
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-file
+          path: |
+            backup/
+
       - name: Create second database for restore test
         run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE restore_test;"
@@ -126,7 +134,7 @@ jobs:
       - name: Verify encrypted backup exists
         run: |
           ./mc ls myminio/test-bucket/backup-encrypted/
-          
+
       - name: Create third database for encrypted restore test
         run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE encrypted_restore_test;"
@@ -158,15 +166,15 @@ jobs:
             echo "❌ Encrypted restoration failed!"
             exit 1
           fi
-          
+
       - name: Test scheduled backup
         run: |
           # Clean up previous backups
           ./mc rm --recursive --force myminio/test-bucket/backup-scheduled/
-          
+
           # Add more data to test database
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('scheduled_backup_test');"
-          
+
           # Start a scheduled backup container (using a short schedule for testing)
           docker run -d --name scheduled-backup --network=host \
             -e POSTGRES_DATABASE=test \
@@ -197,14 +205,14 @@ jobs:
             fi
             echo "Still waiting... ($i/7)"
           done
-          
+
           # Stop the scheduled backup container
           docker stop scheduled-backup
           docker rm scheduled-backup
-          
+
           # Create a new database for testing the restore from scheduled backup
           PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE scheduled_restore_test;"
-          
+
           # Restore from the scheduled backup
           docker run --network=host \
             -e POSTGRES_DATABASE=scheduled_restore_test \
@@ -229,12 +237,12 @@ jobs:
             echo "❌ Scheduled backup restoration failed!"
             exit 1
           fi
-          
+
       - name: Test DELETE_OLDER_THAN feature
         run: |
           # Create a directory for retention testing
           ./mc mb myminio/test-bucket/backup-retention
-          
+
           # Create multiple backups with different timestamps
           echo "Creating first backup..."
           docker run --network=host \
@@ -250,18 +258,18 @@ jobs:
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-retention \
             postgres-backup-s3:test
-          
+
           # List current backups
           echo "Current backups:"
           ./mc ls myminio/test-bucket/backup-retention/
-          
+
           # Modify the timestamps of the first backup to make it appear older
           FIRST_BACKUP=$(./mc ls myminio/test-bucket/backup-retention/ | awk '{print $5}')
           echo "First backup file: $FIRST_BACKUP"
-          
+
           # Wait a few seconds before creating second backup
           sleep 5
-          
+
           # Create another backup
           echo "Creating second backup..."
           docker run --network=host \
@@ -277,15 +285,15 @@ jobs:
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-retention \
             postgres-backup-s3:test
-          
+
           # List both backups
           echo "Backups before retention policy:"
           ./mc ls myminio/test-bucket/backup-retention/
-          
+
           # Count number of backups before deletion
           BACKUPS_BEFORE=$(./mc ls myminio/test-bucket/backup-retention/ | wc -l)
           echo "Number of backups before retention policy: $BACKUPS_BEFORE"
-          
+
           # Test retention policy - delete backups older than 1 second ago
           echo "Running backup with DELETE_OLDER_THAN='1 second ago'..."
           docker run --network=host \
@@ -302,19 +310,19 @@ jobs:
             -e S3_PREFIX=backup-retention \
             -e DELETE_OLDER_THAN="1 second ago" \
             postgres-backup-s3:test
-          
+
           # List backups after retention policy
           echo "Backups after retention policy:"
           ./mc ls myminio/test-bucket/backup-retention/
-          
+
           # Count number of backups after deletion
           BACKUPS_AFTER=$(./mc ls myminio/test-bucket/backup-retention/ | wc -l)
           echo "Number of backups after retention policy: $BACKUPS_AFTER"
-          
+
           # Verify that backup removal happened
           if [ "$BACKUPS_AFTER" -lt "$BACKUPS_BEFORE" ]; then
             echo "✅ DELETE_OLDER_THAN feature working correctly!"
           else
             echo "❌ DELETE_OLDER_THAN feature failed! No backups were removed."
             exit 1
-          fi 
+          fi
