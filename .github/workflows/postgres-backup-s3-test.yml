@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:14-alpine
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -21,16 +21,13 @@ jobs:
           --health-retries 5
       
       minio:
-        image: minio/minio
+        image: minio/minio:edge-cicd
         env:
           MINIO_ACCESS_KEY: minio_access_key
           MINIO_SECRET_KEY: minio_secret_key
         ports:
           - 9000:9000
-        options: >-
-          --entrypoint /usr/bin/minio
-          server
-          /data
+        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
 
     steps:
       - name: Checkout
