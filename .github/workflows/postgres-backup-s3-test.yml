@@ -205,13 +205,22 @@ jobs:
             postgres-backup-s3:test
 
           # Verify that backup removal happened
-          BACKUPS_AFTER=$(./mc ls myminio/test-bucket/backup-retention/ | wc -l)
-          if [ "$BACKUPS_AFTER" -eq 1 ]; then
-            echo "✅ DELETE_OLDER_THAN feature working correctly!"
-          else
-            echo "❌ DELETE_OLDER_THAN feature failed! Expected 1 backup, found $BACKUPS_AFTER."
-            exit 1
-          fi
+          echo "Verifying backup retention..."
+          for i in {1..5}; do
+            sleep 2
+            BACKUPS_AFTER=$(./mc ls myminio/test-bucket/backup-retention/ | wc -l)
+            if [ "$BACKUPS_AFTER" -eq 1 ]; then
+              echo "✅ DELETE_OLDER_THAN feature working correctly!"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "❌ DELETE_OLDER_THAN feature failed! Expected 1 backup, found $BACKUPS_AFTER."
+              echo "Current backups:"
+              ./mc ls myminio/test-bucket/backup-retention/
+              exit 1
+            fi
+            echo "Retrying verification... ($i/5)"
+          done
 
   restore_s3_test:
     needs: backup_test
