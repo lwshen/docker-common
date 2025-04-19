@@ -358,8 +358,10 @@ jobs:
       - name: Extract backup file
         run: |
           ls -la backup
-          gunzip backup/test_*.sql.gz
+          # get the latest file in ./backup and extract it to ./backup/dump.sql
+          gunzip $(ls ./backup/*.sql.gz | head -n 1) -c > ./backup/dump.sql
           ls -la backup
+          cat ./backup/dump.sql
 
       - name: Build postgres-restore-file image
         run: |
