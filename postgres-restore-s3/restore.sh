@@ -42,6 +42,12 @@ if [ "${POSTGRES_PASSWORD}" = "**None**" ]; then
   exit 1
 fi
 
+if [ "${S3_ENDPOINT}" = "None" ]; then
+  AWS_ARGS=""
+else
+  AWS_ARGS="--endpoint-url ${S3_ENDPOINT}"
+fi
+
 # env vars needed for aws tools
 export AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY
@@ -52,11 +58,27 @@ POSTGRES_HOST_OPTS="-h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER"
 
 echo "Finding latest backup"
 
-LATEST_BACKUP=$(aws s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | sort | tail -n 1 | awk '{ print $4 }')
+LATEST_BACKUP=$(aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | sort | tail -n 1 | awk '{ print $4 }')
 
 echo "Fetching ${LATEST_BACKUP} from S3"
 
-aws s3 cp s3://$S3_BUCKET/$S3_PREFIX/${LATEST_BACKUP} dump.sql.gz
+# Download the file with its original name
+aws $AWS_ARGS s3 cp s3://$S3_BUCKET/$S3_PREFIX/${LATEST_BACKUP} .
+
+# Check if the file is encrypted (ends with .enc)
+if echo "${LATEST_BACKUP}" | grep -q '\.enc$'; then
+    if [ "${ENCRYPTION_PASSWORD}" = "**None**" ]; then
+        echo "Error: Encrypted file found but ENCRYPTION_PASSWORD is not set"
+        exit 1
+    fi
+    echo "Decrypting backup file"
+    openssl enc -d -aes-256-cbc -in "${LATEST_BACKUP}" -out dump.sql.gz -k "${ENCRYPTION_PASSWORD}"
+    rm "${LATEST_BACKUP}"
+else
+    # If not encrypted, just rename it
+    mv "${LATEST_BACKUP}" dump.sql.gz
+fi
+
 gzip -d dump.sql.gz
 
 if [ "${DROP_PUBLIC}" == "yes" ]; then

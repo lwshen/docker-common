@@ -1,0 +1,460 @@
+name: Test Postgres Backup S3
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - postgres-backup-s3/**
+      - postgres-restore-s3/**
+      - postgres-restore-file/**
+      - .github/workflows/postgres-backup-s3-test.yml
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - postgres-backup-s3/**
+      - postgres-restore-s3/**
+      - postgres-restore-file/**
+      - .github/workflows/postgres-backup-s3-test.yml
+
+jobs:
+  backup_test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      minio:
+        image: minio/minio:edge-cicd
+        env:
+          MINIO_ACCESS_KEY: minio_access_key
+          MINIO_SECRET_KEY: minio_secret_key
+        ports:
+          - 9000:9000
+        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Create test bucket in MinIO
+        run: |
+          apt-get update && apt-get install -y wget
+          wget https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc config host add myminio http://localhost:9000 minio_access_key minio_secret_key
+          ./mc mb myminio/test-bucket
+
+      - name: Setup test database
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT);"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('test_data_1'), ('test_data_2'), ('test_data_3');"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "SELECT * FROM test_table;"
+
+      - name: Build postgres-backup-s3 image
+        run: |
+          docker build -t postgres-backup-s3:test postgres-backup-s3
+
+      - name: Run backup
+        run: |
+          docker run --network=host \
+            -e POSTGRES_DATABASE=test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            postgres-backup-s3:test
+
+      - name: Verify basic backup exists
+        run: |
+          ./mc ls myminio/test-bucket/backup/
+          ./mc cp -r myminio/test-bucket/backup/ ./backup/
+
+      - name: Archive backup file
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-file
+          path: |
+            backup/
+
+      - name: Test encrypted backup
+        run: |
+          docker run --network=host \
+            -e POSTGRES_DATABASE=test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-encrypted \
+            -e ENCRYPTION_PASSWORD=test_password \
+            postgres-backup-s3:test
+
+      - name: Verify encrypted backup exists
+        run: |
+          ./mc ls myminio/test-bucket/backup-encrypted/
+          ./mc cp -r myminio/test-bucket/backup-encrypted/ ./backup-encrypted/
+
+      - name: Archive encrypted backup file
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-encrypted-file
+          path: |
+            backup-encrypted/
+
+      - name: Test scheduled backup
+        run: |
+          # Clean up previous backups
+          ./mc rm --recursive --force myminio/test-bucket/backup-scheduled/
+
+          # Add more data to test database
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('scheduled_backup_test');"
+
+          # Start a scheduled backup container (using a short schedule for testing)
+          docker run -d --name scheduled-backup --network=host \
+            -e POSTGRES_DATABASE=test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-scheduled \
+            -e SCHEDULE="* * * * *" \
+            postgres-backup-s3:test
+            
+          # Wait for up to 70 seconds for the scheduled backup to run
+          echo "Waiting for scheduled backup to run..."
+          for i in {1..7}; do
+            sleep 10
+            if ./mc ls myminio/test-bucket/backup-scheduled/ | grep -q ".sql.gz"; then
+              echo "✅ Scheduled backup created successfully!"
+              break
+            fi
+            if [ $i -eq 7 ]; then
+              echo "❌ Scheduled backup not created within expected time!"
+              exit 1
+            fi
+            echo "Still waiting... ($i/7)"
+          done
+
+          # Stop the scheduled backup container
+          docker stop scheduled-backup
+          docker rm scheduled-backup
+
+      - name: Verify encrypted backup exists
+        run: |
+          ./mc ls myminio/test-bucket/backup-scheduled/
+          ./mc cp -r myminio/test-bucket/backup-scheduled/ ./backup-scheduled/
+
+      - name: Archive encrypted backup file
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-scheduled-file
+          path: |
+            backup-scheduled/
+
+      - name: Test DELETE_OLDER_THAN feature
+        run: |
+          # Create a directory for retention testing
+          ./mc mb myminio/test-bucket/backup-retention
+
+          # Create multiple backups with different timestamps
+          echo "Creating first backup..."
+          docker run --network=host \
+            -e POSTGRES_DATABASE=test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-retention \
+            postgres-backup-s3:test
+
+          # Wait a few seconds before creating second backup
+          sleep 5
+
+          # Create another backup
+          echo "Creating second backup..."
+          docker run --network=host \
+            -e POSTGRES_DATABASE=test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-retention \
+            -e DELETE_OLDER_THAN="1 second ago" \
+            postgres-backup-s3:test
+
+          # Verify that backup removal happened
+          echo "Verifying backup retention..."
+          for i in {1..5}; do
+            sleep 2
+            BACKUPS_AFTER=$(./mc ls myminio/test-bucket/backup-retention/ | wc -l)
+            if [ "$BACKUPS_AFTER" -eq 1 ]; then
+              echo "✅ DELETE_OLDER_THAN feature working correctly!"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "❌ DELETE_OLDER_THAN feature failed! Expected 1 backup, found $BACKUPS_AFTER."
+              echo "Current backups:"
+              ./mc ls myminio/test-bucket/backup-retention/
+              exit 1
+            fi
+            echo "Retrying verification... ($i/5)"
+          done
+
+  restore_s3_test:
+    needs: backup_test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      minio:
+        image: minio/minio:edge-cicd
+        env:
+          MINIO_ACCESS_KEY: minio_access_key
+          MINIO_SECRET_KEY: minio_secret_key
+        ports:
+          - 9000:9000
+        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-file
+          path: backup
+
+      - name: Download encrypted backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-encrypted-file
+          path: backup-encrypted
+
+      - name: Download scheduled backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-scheduled-file
+          path: backup-scheduled
+
+      - name: Setup MinIO client
+        run: |
+          apt-get update && apt-get install -y wget
+          wget https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc config host add myminio http://localhost:9000 minio_access_key minio_secret_key
+          ./mc mb myminio/test-bucket
+          ./mc cp -r backup/ myminio/test-bucket/backup/
+          ./mc ls myminio/test-bucket/backup/
+          ./mc cp -r backup-encrypted/ myminio/test-bucket/backup-encrypted/
+          ./mc ls myminio/test-bucket/backup-encrypted/
+          ./mc cp -r backup-scheduled/ myminio/test-bucket/backup-scheduled/
+          ./mc ls myminio/test-bucket/backup-scheduled/
+
+      - name: Build postgres-restore-s3 image
+        run: |
+          docker build -t postgres-restore-s3:test postgres-restore-s3
+
+      - name: Test restore from basic backup
+        run: |
+          # Create a new database for testing
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE restore_test;"
+
+          # Restore from the basic backup
+          docker run --network=host \
+            -e POSTGRES_DATABASE=restore_test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup \
+            postgres-restore-s3:test
+
+          # Verify the restored data
+          PGPASSWORD=postgres psql -h localhost -U postgres -d restore_test -c "SELECT * FROM test_table;" > restored_data.txt
+          cat restored_data.txt
+          if grep -q "test_data_1" restored_data.txt && grep -q "test_data_2" restored_data.txt && grep -q "test_data_3" restored_data.txt; then
+            echo "✅ Basic backup restore successful!"
+          else
+            echo "❌ Basic backup restore failed!"
+            exit 1
+          fi
+
+      - name: Test restore from encrypted backup
+        run: |
+          # Create a new database for testing
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE encrypted_restore_test;"
+
+          # Restore from the encrypted backup
+          docker run --network=host \
+            -e POSTGRES_DATABASE=encrypted_restore_test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-encrypted \
+            -e ENCRYPTION_PASSWORD=test_password \
+            postgres-restore-s3:test
+
+          # Verify the restored data
+          PGPASSWORD=postgres psql -h localhost -U postgres -d encrypted_restore_test -c "SELECT * FROM test_table;" > encrypted_restored_data.txt
+          cat encrypted_restored_data.txt
+          if grep -q "test_data_1" encrypted_restored_data.txt && grep -q "test_data_2" encrypted_restored_data.txt && grep -q "test_data_3" encrypted_restored_data.txt; then
+            echo "✅ Encrypted backup restore successful!"
+          else
+            echo "❌ Encrypted backup restore failed!"
+            exit 1
+          fi
+
+      - name: Test restore from scheduled backup
+        run: |
+          # Create a new database for testing
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE scheduled_restore_test;"
+
+          # Restore from the scheduled backup
+          docker run --network=host \
+            -e POSTGRES_DATABASE=scheduled_restore_test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-scheduled \
+            postgres-restore-s3:test
+
+          # Verify the restored data includes the scheduled backup test record
+          PGPASSWORD=postgres psql -h localhost -U postgres -d scheduled_restore_test -c "SELECT * FROM test_table;" > scheduled_restored_data.txt
+          cat scheduled_restored_data.txt
+          if grep -q "scheduled_backup_test" scheduled_restored_data.txt; then
+            echo "✅ Scheduled backup restore successful!"
+          else
+            echo "❌ Scheduled backup restore failed!"
+            exit 1
+          fi
+
+  restore_file_test:
+    needs: backup_test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-file
+          path: backup
+
+      - name: Extract backup file
+        run: |
+          gunzip $(ls ./backup/*.sql.gz | head -n 1) -c > ./backup/dump.sql
+
+      - name: Build postgres-restore-file image
+        run: |
+          docker build -t postgres-restore-file:test postgres-restore-file
+
+      - name: Test restore from file
+        run: |
+          # Create a new database for testing
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE file_restore_test;"
+
+          # Restore from the file backup
+          docker run --network=host \
+            -e POSTGRES_DATABASE=file_restore_test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -v $(pwd)/backup:/backup \
+            postgres-restore-file:test
+
+          # Verify the restored data
+          PGPASSWORD=postgres psql -h localhost -U postgres -d file_restore_test -c "SELECT * FROM test_table;" > file_restored_data.txt
+          cat file_restored_data.txt
+          if grep -q "test_data_1" file_restored_data.txt && grep -q "test_data_2" file_restored_data.txt && grep -q "test_data_3" file_restored_data.txt; then
+            echo "✅ File backup restore successful!"
+          else
+            echo "❌ File backup restore failed!"
+            exit 1
+          fi
