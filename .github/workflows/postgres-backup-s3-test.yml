@@ -99,6 +99,14 @@ jobs:
       - name: Verify encrypted backup exists
         run: |
           ./mc ls myminio/test-bucket/backup-encrypted/
+          ./mc cp -r myminio/test-bucket/backup-encrypted/ ./backup-encrypted/
+
+      - name: Archive encrypted backup file
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-encrypted-file
+          path: |
+            backup-encrypted/
 
       - name: Test scheduled backup
         run: |
@@ -230,6 +238,12 @@ jobs:
           name: backup-file
           path: backup
 
+      - name: Download encrypted backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-encrypted-file
+          path: backup-encrypted
+
       - name: Setup MinIO client
         run: |
           apt-get update && apt-get install -y wget
@@ -239,6 +253,8 @@ jobs:
           ./mc mb myminio/test-bucket
           ./mc cp -r backup/ myminio/test-bucket/backup/
           ./mc ls myminio/test-bucket/backup/
+          ./mc cp -r backup-encrypted/ myminio/test-bucket/backup-encrypted/
+          ./mc ls myminio/test-bucket/backup-encrypted/
 
       - name: Build postgres-restore-s3 image
         run: |
