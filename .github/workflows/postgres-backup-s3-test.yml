@@ -2,12 +2,15 @@ name: Test Postgres Backup S3
 
 on: [push, pull_request, workflow_dispatch]
 
+env:
+  POSTGRES_IMAGE: postgres:17
+
 jobs:
   backup_test:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: ${{ env.POSTGRES_IMAGE }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -198,7 +201,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: ${{ env.POSTGRES_IMAGE }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -332,7 +335,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: ${{ env.POSTGRES_IMAGE }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -357,11 +360,7 @@ jobs:
 
       - name: Extract backup file
         run: |
-          ls -la backup
-          # get the latest file in ./backup and extract it to ./backup/dump.sql
           gunzip $(ls ./backup/*.sql.gz | head -n 1) -c > ./backup/dump.sql
-          ls -la backup
-          cat ./backup/dump.sql
 
       - name: Build postgres-restore-file image
         run: |
