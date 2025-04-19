@@ -151,6 +151,18 @@ jobs:
           docker stop scheduled-backup
           docker rm scheduled-backup
 
+      - name: Verify encrypted backup exists
+        run: |
+          ./mc ls myminio/test-bucket/backup-scheduled/
+          ./mc cp -r myminio/test-bucket/backup-scheduled/ ./backup-scheduled/
+
+      - name: Archive encrypted backup file
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-scheduled-file
+          path: |
+            backup-scheduled/
+
       - name: Test DELETE_OLDER_THAN feature
         run: |
           # Create a directory for retention testing
@@ -244,6 +256,12 @@ jobs:
           name: backup-encrypted-file
           path: backup-encrypted
 
+      - name: Download scheduled backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-scheduled-file
+          path: backup-scheduled
+
       - name: Setup MinIO client
         run: |
           apt-get update && apt-get install -y wget
@@ -255,6 +273,8 @@ jobs:
           ./mc ls myminio/test-bucket/backup/
           ./mc cp -r backup-encrypted/ myminio/test-bucket/backup-encrypted/
           ./mc ls myminio/test-bucket/backup-encrypted/
+          ./mc cp -r backup-scheduled/ myminio/test-bucket/backup-scheduled/
+          ./mc ls myminio/test-bucket/backup-scheduled/
 
       - name: Build postgres-restore-s3 image
         run: |
