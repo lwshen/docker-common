@@ -66,7 +66,7 @@ echo "Fetching ${LATEST_BACKUP} from S3"
 aws $AWS_ARGS s3 cp s3://$S3_BUCKET/$S3_PREFIX/${LATEST_BACKUP} .
 
 # Check if the file is encrypted (ends with .enc)
-if [ "${LATEST_BACKUP}" == *.enc ]; then
+if echo "${LATEST_BACKUP}" | grep -q '\.enc$'; then
     if [ "${ENCRYPTION_PASSWORD}" = "**None**" ]; then
         echo "Error: Encrypted file found but ENCRYPTION_PASSWORD is not set"
         exit 1
