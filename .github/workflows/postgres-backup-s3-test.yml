@@ -224,12 +224,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      - name: Download backup file
+        uses: actions/download-artifact@v4
+        with:
+          name: backup-file
+          path: backup
+
       - name: Setup MinIO client
         run: |
           apt-get update && apt-get install -y wget
           wget https://dl.min.io/client/mc/release/linux-amd64/mc
           chmod +x mc
           ./mc config host add myminio http://localhost:9000 minio_access_key minio_secret_key
+          ./mc mb myminio/test-bucket
+          ./mc cp -r backup/ myminio/test-bucket/backup/
+          ./mc ls myminio/test-bucket/backup/
 
       - name: Build postgres-restore-s3 image
         run: |
