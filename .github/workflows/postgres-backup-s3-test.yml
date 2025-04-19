@@ -2,15 +2,12 @@ name: Test Postgres Backup S3
 
 on: [push, pull_request, workflow_dispatch]
 
-env:
-  POSTGRES_IMAGE: postgres:17
-
 jobs:
   backup_test:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: ${{ env.POSTGRES_IMAGE }}
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -201,7 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: ${{ env.POSTGRES_IMAGE }}
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -335,7 +332,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: ${{ env.POSTGRES_IMAGE }}
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
