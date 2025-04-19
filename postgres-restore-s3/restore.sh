@@ -62,7 +62,23 @@ LATEST_BACKUP=$(aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | sort | tail -n
 
 echo "Fetching ${LATEST_BACKUP} from S3"
 
-aws $AWS_ARGS s3 cp s3://$S3_BUCKET/$S3_PREFIX/${LATEST_BACKUP} dump.sql.gz
+# Download the file with its original name
+aws $AWS_ARGS s3 cp s3://$S3_BUCKET/$S3_PREFIX/${LATEST_BACKUP} .
+
+# Check if the file is encrypted (ends with .enc)
+if [[ "${LATEST_BACKUP}" == *.enc ]]; then
+    if [ "${ENCRYPTION_PASSWORD}" = "**None**" ]; then
+        echo "Error: Encrypted file found but ENCRYPTION_PASSWORD is not set"
+        exit 1
+    fi
+    echo "Decrypting backup file"
+    openssl enc -d -aes-256-cbc -in "${LATEST_BACKUP}" -out dump.sql.gz -k "${ENCRYPTION_PASSWORD}"
+    rm "${LATEST_BACKUP}"
+else
+    # If not encrypted, just rename it
+    mv "${LATEST_BACKUP}" dump.sql.gz
+fi
+
 gzip -d dump.sql.gz
 
 if [ "${DROP_PUBLIC}" == "yes" ]; then
