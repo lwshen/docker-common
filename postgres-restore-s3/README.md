@@ -19,7 +19,7 @@ This is made to restore a backup made from postgres-backup-s3, if you backup cam
 Docker:
 
 ```sh
-$ docker run -e S3_ACCESS_KEY_ID=key -e S3_SECRET_ACCESS_KEY=secret -e S3_BUCKET=my-bucket -e S3_PREFIX=backup -e POSTGRES_DATABASE=dbname -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_HOST=localhost shenlw/postgres-restore-s3
+$ docker run -e S3_ACCESS_KEY_ID=key -e S3_SECRET_ACCESS_KEY=secret -e S3_BUCKET=my-bucket -e S3_PREFIX=backup -e S3_ENDPOINT=endpoint -e S3_REGION=auto -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_HOST=postgres -e POSTGRES_DATABASE=dbname -e ENCRYPTION_PASSWORD=password shenlw/postgres-restore-s3
 ```
 
 ## Dropping public
