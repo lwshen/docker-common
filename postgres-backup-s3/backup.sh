@@ -61,6 +61,7 @@ POSTGRES_HOST_OPTS="-h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER $POSTG
 echo "Creating dump of ${POSTGRES_DATABASE} database from ${POSTGRES_HOST}..."
 
 SRC_FILE=dump.sql.gz
+DATE_FOLDER=$(date +"%Y%m%d")
 DEST_FILE=${POSTGRES_DATABASE}_$(date +"%Y-%m-%d_%H%M%S").sql.gz
 
 if [ "${POSTGRES_DATABASE}" = "all" ]; then
@@ -83,11 +84,11 @@ fi
 
 echo "Uploading dump to $S3_BUCKET"
 
-cat $SRC_FILE | aws $AWS_ARGS s3 cp - s3://$S3_BUCKET/$S3_PREFIX/$DEST_FILE --checksum-algorithm CRC32 || exit 2
+cat $SRC_FILE | aws $AWS_ARGS s3 cp - s3://$S3_BUCKET/$S3_PREFIX/$DATE_FOLDER/$DEST_FILE --checksum-algorithm CRC32 || exit 2
 
 if [ "${DELETE_OLDER_THAN}" != "None" ]; then
   >&2 echo "Checking for files older than ${DELETE_OLDER_THAN}"
-  aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | grep " PRE " -v | while read -r line;
+  aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ --recursive | grep " PRE " -v | while read -r line;
     do
       fileName=`echo $line|awk {'print $4'}`
       created=`echo $line|awk {'print $1" "$2'}`
