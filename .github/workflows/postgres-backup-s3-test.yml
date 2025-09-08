@@ -428,7 +428,7 @@ jobs:
 
       - name: Extract backup file
         run: |
-          gunzip $(ls ./backup/*.sql.gz | head -n 1) -c > ./backup/dump.sql
+          gunzip $(ls ./backup/*/*.sql.gz | head -n 1) -c > ./backup/dump.sql
 
       - name: Build postgres-restore-file image
         run: |
