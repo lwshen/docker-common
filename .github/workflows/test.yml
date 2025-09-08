@@ -9,30 +9,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2.4.0
 
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: "constants.env"
+          expand: "true"
+
       - name: Build the Docker image
         run: |
           echo "===================="
           echo "JDK8"
-          docker run -i $(docker build -q jdk/8) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/8) /bin/sh -c \
+          docker run -i $(docker build --build-arg JDK8_VERSION=${{ env.JDK8_VERSION }} --build-arg JDK8_UPDATE=${{ env.JDK8_UPDATE }} --build-arg JDK8_BUILD=${{ env.JDK8_BUILD }} -q jdk/8) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build --build-arg JDK8_VERSION=${{ env.JDK8_VERSION }} --build-arg JDK8_UPDATE=${{ env.JDK8_UPDATE }} --build-arg JDK8_BUILD=${{ env.JDK8_BUILD }} -q jdk/8) /bin/sh -c \
             "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
           echo "===================="
           echo "JDK11"
-          docker run -i $(docker build -q jdk/11) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/11) /bin/sh -c \
+          docker run -i $(docker build --build-arg JDK11_VERSION=${{ env.JDK11_VERSION }} --build-arg JDK11_UPDATE=${{ env.JDK11_UPDATE }} --build-arg JDK11_BUILD=${{ env.JDK11_BUILD }} -q jdk/11) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build --build-arg JDK11_VERSION=${{ env.JDK11_VERSION }} --build-arg JDK11_UPDATE=${{ env.JDK11_UPDATE }} --build-arg JDK11_BUILD=${{ env.JDK11_BUILD }} -q jdk/11) /bin/sh -c \
             "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
           echo "===================="
           echo "JDK17"
-          docker run -i $(docker build -q jdk/17) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/17) /bin/sh -c \
+          docker run -i $(docker build --build-arg JDK17_VERSION=${{ env.JDK17_VERSION }} --build-arg JDK17_UPDATE=${{ env.JDK17_UPDATE }} --build-arg JDK17_BUILD=${{ env.JDK17_BUILD }} -q jdk/17) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build --build-arg JDK17_VERSION=${{ env.JDK17_VERSION }} --build-arg JDK17_UPDATE=${{ env.JDK17_UPDATE }} --build-arg JDK17_BUILD=${{ env.JDK17_BUILD }} -q jdk/17) /bin/sh -c \
             "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
           echo "===================="
           echo "JDK21"
-          docker run -i $(docker build -q jdk/21) /bin/sh -c "java -version && javac -version"
-          docker run -i $(docker build -q jdk/21) /bin/sh -c \
+          docker run -i $(docker build --build-arg JDK21_VERSION=${{ env.JDK21_VERSION }} --build-arg JDK21_UPDATE=${{ env.JDK21_UPDATE }} --build-arg JDK21_BUILD=${{ env.JDK21_BUILD }} -q jdk/21) /bin/sh -c "java -version && javac -version"
+          docker run -i $(docker build --build-arg JDK21_VERSION=${{ env.JDK21_VERSION }} --build-arg JDK21_UPDATE=${{ env.JDK21_UPDATE }} --build-arg JDK21_BUILD=${{ env.JDK21_BUILD }} -q jdk/21) /bin/sh -c \
             "echo 'public class Main { public static void main(String[] args) { System.out.println(\"Java code is running fine\"); } }' > Main.java && javac Main.java && java Main"
 
   build_jre:
