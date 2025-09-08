@@ -6,6 +6,7 @@ on:
     paths:
       - jdk/**
       - .github/workflows/jdk-acr.yml
+      - constants.env
   push:
     branches:
       - main
@@ -13,6 +14,7 @@ on:
     paths:
       - jdk/**
       - .github/workflows/jdk-acr.yml
+      - constants.env
 
 jobs:
   build:
@@ -45,6 +47,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2.4.0
 
+      - name: Load constants from env file
+        run: |
+          set -a
+          source constants.env
+          set +a
+          echo "JDK8_VERSION=${JDK8_VERSION}" >> $GITHUB_ENV
+          echo "JDK8_UPDATE=${JDK8_UPDATE}" >> $GITHUB_ENV
+          echo "JDK8_BUILD=${JDK8_BUILD}" >> $GITHUB_ENV
+          echo "JDK11_VERSION=${JDK11_VERSION}" >> $GITHUB_ENV
+          echo "JDK11_UPDATE=${JDK11_UPDATE}" >> $GITHUB_ENV
+          echo "JDK11_BUILD=${JDK11_BUILD}" >> $GITHUB_ENV
+          echo "JDK17_VERSION=${JDK17_VERSION}" >> $GITHUB_ENV
+          echo "JDK17_UPDATE=${JDK17_UPDATE}" >> $GITHUB_ENV
+          echo "JDK17_BUILD=${JDK17_BUILD}" >> $GITHUB_ENV
+          echo "JDK21_VERSION=${JDK21_VERSION}" >> $GITHUB_ENV
+          echo "JDK21_UPDATE=${JDK21_UPDATE}" >> $GITHUB_ENV
+          echo "JDK21_BUILD=${JDK21_BUILD}" >> $GITHUB_ENV
+
       - name: Prepare
         id: prepare
         run: |
@@ -69,7 +89,20 @@ jobs:
           push: false
           context: ./${{ matrix.docker-file.path }}
           file: ./${{ matrix.docker-file.path }}/Dockerfile
-          build-args: REFRESHED_AT=$(date +%Y-%m-%d)
+          build-args: |
+            REFRESHED_AT=$(date +%Y-%m-%d)
+            ${{ matrix.docker-file.path == 'jdk/8' && format('JDK8_VERSION={0}', env.JDK8_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/8' && format('JDK8_UPDATE={0}', env.JDK8_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/8' && format('JDK8_BUILD={0}', env.JDK8_BUILD) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/11' && format('JDK11_VERSION={0}', env.JDK11_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/11' && format('JDK11_UPDATE={0}', env.JDK11_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/11' && format('JDK11_BUILD={0}', env.JDK11_BUILD) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/17' && format('JDK17_VERSION={0}', env.JDK17_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/17' && format('JDK17_UPDATE={0}', env.JDK17_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/17' && format('JDK17_BUILD={0}', env.JDK17_BUILD) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/21' && format('JDK21_VERSION={0}', env.JDK21_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/21' && format('JDK21_UPDATE={0}', env.JDK21_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/21' && format('JDK21_BUILD={0}', env.JDK21_BUILD) || '' }}
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Login to Aliyun Container Registry (ACR)
@@ -87,7 +120,20 @@ jobs:
           push: true
           context: ./${{ matrix.docker-file.path }}
           file: ./${{ matrix.docker-file.path }}/Dockerfile
-          build-args: REFRESHED_AT=$(date +%Y-%m-%d)
+          build-args: |
+            REFRESHED_AT=$(date +%Y-%m-%d)
+            ${{ matrix.docker-file.path == 'jdk/8' && format('JDK8_VERSION={0}', env.JDK8_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/8' && format('JDK8_UPDATE={0}', env.JDK8_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/8' && format('JDK8_BUILD={0}', env.JDK8_BUILD) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/11' && format('JDK11_VERSION={0}', env.JDK11_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/11' && format('JDK11_UPDATE={0}', env.JDK11_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/11' && format('JDK11_BUILD={0}', env.JDK11_BUILD) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/17' && format('JDK17_VERSION={0}', env.JDK17_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/17' && format('JDK17_UPDATE={0}', env.JDK17_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/17' && format('JDK17_BUILD={0}', env.JDK17_BUILD) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/21' && format('JDK21_VERSION={0}', env.JDK21_VERSION) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/21' && format('JDK21_UPDATE={0}', env.JDK21_UPDATE) || '' }}
+            ${{ matrix.docker-file.path == 'jdk/21' && format('JDK21_BUILD={0}', env.JDK21_BUILD) || '' }}
           tags: ${{ steps.prepare.outputs.tags }}
 
       - name: Clear
