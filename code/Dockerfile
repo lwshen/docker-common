@@ -35,8 +35,8 @@ RUN ln -s "/usr/lib/jvm/java-11" "$JAVA_HOME" && \
     echo "alias j21='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-21 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc"
 
 # Install Maven
-ENV MAVEN_HOME /usr/share/maven
-ENV ENV MAVEN_CONFIG "$HOME/.m2"
+ENV MAVEN_HOME=/usr/share/maven
+ENV MAVEN_CONFIG="$HOME/.m2"
 
 COPY --from=maven_builder $MAVEN_HOME $MAVEN_HOME
 COPY --from=maven_builder /usr/local/bin/mvn-entrypoint.sh /usr/local/bin/mvn-entrypoint.sh
