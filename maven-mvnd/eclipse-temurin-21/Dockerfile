@@ -12,7 +12,7 @@ RUN apt-get update -qq \
     && rm -f /tmp/mvnd.zip \
     && ln -s /usr/share/mvnd/bin/* /usr/bin/
 
-ENV MAVEN_CONFIG "$USER_HOME_DIR/.m2"
+ENV MAVEN_CONFIG="$USER_HOME_DIR/.m2"
 
 COPY settings-docker.xml $MAVEN_CONFIG/settings.xml
 
