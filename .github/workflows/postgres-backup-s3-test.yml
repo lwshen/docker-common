@@ -152,8 +152,8 @@ jobs:
           echo "Waiting for scheduled backup to run..."
           for i in {1..7}; do
             sleep 10
-            ./mc ls myminio/test-bucket/backup-scheduled/
-            if ./mc ls myminio/test-bucket/backup-scheduled/ | grep -q ".sql.gz"; then
+            ./mc ls --recursive myminio/test-bucket/backup-scheduled/
+            if ./mc ls --recursive myminio/test-bucket/backup-scheduled/ | grep -q ".sql.gz"; then
               echo "✅ Scheduled backup created successfully!"
               break
             fi
