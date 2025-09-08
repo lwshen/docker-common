@@ -54,7 +54,7 @@ jobs:
           apt-get update && apt-get install -y wget
           wget https://dl.min.io/client/mc/release/linux-amd64/mc
           chmod +x mc
-          ./mc config host add myminio http://localhost:9000 minio_access_key minio_secret_key
+          ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
 
       - name: Setup test database
@@ -292,7 +292,7 @@ jobs:
           apt-get update && apt-get install -y wget
           wget https://dl.min.io/client/mc/release/linux-amd64/mc
           chmod +x mc
-          ./mc config host add myminio http://localhost:9000 minio_access_key minio_secret_key
+          ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
           ./mc cp -r backup/ myminio/test-bucket/backup/
           ./mc ls myminio/test-bucket/backup/
