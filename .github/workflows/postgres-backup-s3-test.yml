@@ -85,7 +85,7 @@ jobs:
 
       - name: Verify basic backup exists
         run: |
-          ./mc ls myminio/test-bucket/backup/
+          ./mc ls --recursive myminio/test-bucket/backup/
           ./mc cp -r myminio/test-bucket/backup/ ./backup/
 
       - name: Archive backup file
@@ -114,7 +114,7 @@ jobs:
 
       - name: Verify encrypted backup exists
         run: |
-          ./mc ls myminio/test-bucket/backup-encrypted/
+          ./mc ls --recursive myminio/test-bucket/backup-encrypted/
           ./mc cp -r myminio/test-bucket/backup-encrypted/ ./backup-encrypted/
 
       - name: Archive encrypted backup file
@@ -170,7 +170,7 @@ jobs:
 
       - name: Verify encrypted backup exists
         run: |
-          ./mc ls myminio/test-bucket/backup-scheduled/
+          ./mc ls --recursive myminio/test-bucket/backup-scheduled/
           ./mc cp -r myminio/test-bucket/backup-scheduled/ ./backup-scheduled/
 
       - name: Archive encrypted backup file
@@ -296,11 +296,11 @@ jobs:
           ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
           ./mc cp -r backup/ myminio/test-bucket/backup/
-          ./mc ls myminio/test-bucket/backup/
+          ./mc ls --recursive myminio/test-bucket/backup/
           ./mc cp -r backup-encrypted/ myminio/test-bucket/backup-encrypted/
-          ./mc ls myminio/test-bucket/backup-encrypted/
+          ./mc ls --recursive myminio/test-bucket/backup-encrypted/
           ./mc cp -r backup-scheduled/ myminio/test-bucket/backup-scheduled/
-          ./mc ls myminio/test-bucket/backup-scheduled/
+          ./mc ls --recursive myminio/test-bucket/backup-scheduled/
 
       - name: Build postgres-restore-s3 image
         run: |
