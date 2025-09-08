@@ -58,12 +58,35 @@ POSTGRES_HOST_OPTS="-h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER"
 
 echo "Finding latest backup"
 
-LATEST_BACKUP=$(aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | sort | tail -n 1 | awk '{ print $4 }')
+# First, try to find date folders (format: YYYYMMDD)
+DATE_FOLDERS=$(aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | grep "PRE " | awk '{ print $2 }' | sed 's/\///g' | grep '^[0-9]\{8\}$' | sort -r)
 
-echo "Fetching ${LATEST_BACKUP} from S3"
+if [ -n "$DATE_FOLDERS" ]; then
+    # If date folders exist, find the latest backup in the most recent date folder
+    echo "Found date-specific folders, searching for latest backup"
+    for DATE_FOLDER in $DATE_FOLDERS; do
+        LATEST_BACKUP=$(aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/$DATE_FOLDER/ | sort | tail -n 1 | awk '{ print $4 }')
+        if [ -n "$LATEST_BACKUP" ]; then
+            BACKUP_PATH="$S3_PREFIX/$DATE_FOLDER/$LATEST_BACKUP"
+            break
+        fi
+    done
+else
+    # If no date folders, look directly in the prefix folder (legacy behavior)
+    echo "No date folders found, searching in root prefix"
+    LATEST_BACKUP=$(aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ | grep -v "PRE " | sort | tail -n 1 | awk '{ print $4 }')
+    BACKUP_PATH="$S3_PREFIX/$LATEST_BACKUP"
+fi
+
+if [ -z "$LATEST_BACKUP" ]; then
+    echo "No backup files found"
+    exit 1
+fi
+
+echo "Fetching ${LATEST_BACKUP} from S3 (path: ${BACKUP_PATH})"
 
 # Download the file with its original name
-aws $AWS_ARGS s3 cp s3://$S3_BUCKET/$S3_PREFIX/${LATEST_BACKUP} .
+aws $AWS_ARGS s3 cp s3://$S3_BUCKET/$BACKUP_PATH .
 
 # Check if the file is encrypted (ends with .enc)
 if echo "${LATEST_BACKUP}" | grep -q '\.enc$'; then
