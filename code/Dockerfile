@@ -30,7 +30,7 @@ COPY --from=jdk25_builder /usr/lib/jvm/java-25 /usr/lib/jvm/java-25
 ENV JAVA_HOME="/usr/lib/jvm/default-jvm"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN ln -s "/usr/lib/jvm/java-11" "$JAVA_HOME" && \
+RUN ln -s "/usr/lib/jvm/java-25" "$JAVA_HOME" && \
     ln -s "$JAVA_HOME/bin/"* "/usr/bin/" && \
     echo "alias j8='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-8 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc" && \
     echo "alias j11='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-11 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc" && \
