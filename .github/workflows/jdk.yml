@@ -43,6 +43,11 @@ jobs:
             tags: 21,21-eclipse-temurin
             platforms: linux/amd64,linux/arm64
 
+          - path: jdk/25
+            image: shenlw/jdk
+            tags: 25,25-eclipse-temurin
+            platforms: linux/amd64,linux/arm64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
@@ -102,6 +107,9 @@ jobs:
             JDK21_VERSION=${{ env.JDK21_VERSION }}
             JDK21_UPDATE=${{ env.JDK21_UPDATE }}
             JDK21_BUILD=${{ env.JDK21_BUILD }}
+            JDK25_VERSION=${{ env.JDK25_VERSION }}
+            JDK25_UPDATE=${{ env.JDK25_UPDATE }}
+            JDK25_BUILD=${{ env.JDK25_BUILD }}
           platforms: ${{ matrix.docker-file.platforms }}
           tags: ${{ steps.prepare.outputs.tags }}
 
@@ -133,6 +141,9 @@ jobs:
             JDK21_VERSION=${{ env.JDK21_VERSION }}
             JDK21_UPDATE=${{ env.JDK21_UPDATE }}
             JDK21_BUILD=${{ env.JDK21_BUILD }}
+            JDK25_VERSION=${{ env.JDK25_VERSION }}
+            JDK25_UPDATE=${{ env.JDK25_UPDATE }}
+            JDK25_BUILD=${{ env.JDK25_BUILD }}
           platforms: ${{ matrix.docker-file.platforms }}
           tags: ${{ steps.prepare.outputs.tags }}
 

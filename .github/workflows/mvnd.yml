@@ -43,6 +43,11 @@ jobs:
             tag_suffixes: jdk-21, eclipse-temurin-21
             platforms: linux/amd64
 
+          - path: maven-mvnd/eclipse-temurin-25
+            image: shenlw/mvnd
+            tag_suffixes: jdk-25, eclipse-temurin-25
+            platforms: linux/amd64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0

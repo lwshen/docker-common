@@ -57,6 +57,13 @@ docker pull shenlw/jdk:21
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:21
 ```
 
+#### [jdk25](jdk/25/)
+
+```
+docker pull shenlw/jdk:25
+docker pull registry.cn-shanghai.aliyuncs.com/lwshen/jdk:25
+```
+
 ### Build Tools
 
 #### [maven](maven/)
@@ -67,6 +74,7 @@ Maven images with different JDK versions:
 - **JDK 11**: `docker pull shenlw/maven:3-jdk-11`
 - **JDK 17**: `docker pull shenlw/maven:3-jdk-17`
 - **JDK 21**: `docker pull shenlw/maven:3-jdk-21`
+- **JDK 25**: `docker pull shenlw/maven:3-jdk-25`
 
 Also available on Aliyun registry:
 
@@ -82,6 +90,7 @@ Maven Daemon images with different JDK versions:
 - **JDK 11**: `docker pull shenlw/mvnd:0-jdk-11`
 - **JDK 17**: `docker pull shenlw/mvnd:0-jdk-17`
 - **JDK 21**: `docker pull shenlw/mvnd:0-jdk-21`
+- **JDK 25**: `docker pull shenlw/mvnd:0-jdk-25`
 
 Also available on Aliyun registry:
 
@@ -100,7 +109,7 @@ docker pull shenlw/code:latest
 docker pull registry.cn-shanghai.aliyuncs.com/lwshen/code:latest
 ```
 
-Use `j8`, `j11`, `j17`, or `j21` commands to switch JDK environment.
+Use `j8`, `j11`, `j17`, `j21`, or `j25` commands to switch JDK environment.
 
 #### [ubuntu-playground](ubuntu-playground/)
 

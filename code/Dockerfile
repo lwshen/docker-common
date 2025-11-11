@@ -6,6 +6,8 @@ FROM shenlw/jdk:17 as jdk17_builder
 
 FROM shenlw/jdk:21 as jdk21_builder
 
+FROM shenlw/jdk:25 as jdk25_builder
+
 FROM shenlw/maven:3-jdk-8 as maven_builder
 
 FROM ubuntu:20.04
@@ -23,6 +25,7 @@ COPY --from=jdk8_builder /usr/lib/jvm/java-8 /usr/lib/jvm/java-8
 COPY --from=jdk11_builder /usr/lib/jvm/java-11 /usr/lib/jvm/java-11
 COPY --from=jdk17_builder /usr/lib/jvm/java-17 /usr/lib/jvm/java-17
 COPY --from=jdk21_builder /usr/lib/jvm/java-21 /usr/lib/jvm/java-21
+COPY --from=jdk25_builder /usr/lib/jvm/java-25 /usr/lib/jvm/java-25
 
 ENV JAVA_HOME="/usr/lib/jvm/default-jvm"
 
@@ -32,7 +35,8 @@ RUN ln -s "/usr/lib/jvm/java-11" "$JAVA_HOME" && \
     echo "alias j8='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-8 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc" && \
     echo "alias j11='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-11 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc" && \
     echo "alias j17='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-17 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc" && \
-    echo "alias j21='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-21 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc"
+    echo "alias j21='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-21 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc" && \
+    echo "alias j25='rm $JAVA_HOME && ln -s /usr/lib/jvm/java-25 /usr/lib/jvm/default-jvm'" | tee -a "$HOME/.bashrc"
 
 # Install Maven
 ENV MAVEN_HOME=/usr/share/maven
