@@ -4,9 +4,9 @@ WORKDIR /app
 
 COPY main.go /app/main.go
 
-RUN go mod init github.com/itbm/postgresql-backup-s3 \
-	&& go get github.com/robfig/cron/v3 \
-	&& go build -o out/go-cron
+RUN go mod init github.com/itbm/postgresql-backup-s3
+RUN go get github.com/robfig/cron/v3
+RUN go build -o out/go-cron
 
 FROM ubuntu:24.04
 
