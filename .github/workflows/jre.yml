@@ -3,14 +3,14 @@ name: Build JRE Docker
 on:
   pull_request:
     paths:
-      - jre/**
+      - jre8/**
       - .github/workflows/jre.yml
   push:
     branches:
       - main
       - master
     paths:
-      - jre/**
+      - jre8/**
       - .github/workflows/jre.yml
 
 jobs:
