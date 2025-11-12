@@ -39,6 +39,10 @@ jobs:
             image: registry.cn-shanghai.aliyuncs.com/lwshen/mvnd
             tag_suffixes: jdk-21, eclipse-temurin-21
 
+          - path: maven-mvnd/eclipse-temurin-25
+            image: registry.cn-shanghai.aliyuncs.com/lwshen/mvnd
+            tag_suffixes: jdk-25, eclipse-temurin-25
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
