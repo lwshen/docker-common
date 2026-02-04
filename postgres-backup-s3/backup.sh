@@ -90,19 +90,20 @@ if [ "${DELETE_OLDER_THAN}" != "None" ]; then
   >&2 echo "Checking for files older than ${DELETE_OLDER_THAN}"
   aws $AWS_ARGS s3 ls s3://$S3_BUCKET/$S3_PREFIX/ --recursive | grep " PRE " -v | while read -r line;
     do
-      fileName=`echo $line|awk {'print $4'}`
+      # aws s3 ls --recursive returns full S3 path (e.g., "prefix/20250104/file.sql.gz")
+      s3Path=`echo $line|awk {'print $4'}`
       created=`echo $line|awk {'print $1" "$2'}`
       created=`date -d "$created" +%s`
       older_than=`date -d "$DELETE_OLDER_THAN" +%s`
       if [ $created -lt $older_than ]
         then
-          if [ $fileName != "" ]
+          if [ $s3Path != "" ]
             then
-              >&2 echo "DELETING ${fileName}"
-              aws $AWS_ARGS s3 rm s3://$S3_BUCKET/$S3_PREFIX/$fileName
+              >&2 echo "DELETING ${s3Path}"
+              aws $AWS_ARGS s3 rm s3://$S3_BUCKET/$s3Path
           fi
       else
-          >&2 echo "${fileName} not older than ${DELETE_OLDER_THAN}"
+          >&2 echo "${s3Path} not older than ${DELETE_OLDER_THAN}"
       fi
     done;
 fi

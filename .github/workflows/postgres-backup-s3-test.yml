@@ -185,7 +185,7 @@ jobs:
           # Create a directory for retention testing
           ./mc mb myminio/test-bucket/backup-retention
 
-          # Create multiple backups with different timestamps
+          # Create multiple backups first (without DELETE_OLDER_THAN)
           echo "Creating first backup..."
           docker run --network=host \
             -e POSTGRES_DATABASE=test \
@@ -201,10 +201,9 @@ jobs:
             -e S3_PREFIX=backup-retention \
             postgres-backup-s3:test
 
-          # Wait a few seconds before creating second backup
+          # Wait to ensure different timestamps
           sleep 5
 
-          # Create another backup
           echo "Creating second backup..."
           docker run --network=host \
             -e POSTGRES_DATABASE=test \
@@ -218,26 +217,44 @@ jobs:
             -e S3_ENDPOINT=http://localhost:9000 \
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-retention \
-            -e DELETE_OLDER_THAN="1 second ago" \
             postgres-backup-s3:test
 
-          # Verify that backup removal happened
+          # Verify we have 2 backups before cleanup
+          BACKUPS_BEFORE=$(./mc ls --recursive myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
+          echo "Backups before cleanup: $BACKUPS_BEFORE"
+
+          # Now run a backup with DELETE_OLDER_THAN to clean up old files
+          # Use "10 seconds ago" which is enough to delete the first backup but not the second
+          sleep 3
+          echo "Running cleanup backup..."
+          docker run --network=host \
+            -e POSTGRES_DATABASE=test \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e S3_ACCESS_KEY_ID=minio_access_key \
+            -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_S3V4=yes \
+            -e S3_PREFIX=backup-retention \
+            -e DELETE_OLDER_THAN="10 seconds ago" \
+            postgres-backup-s3:test
+
+          # Verify that old backups were removed but recent ones remain
           echo "Verifying backup retention..."
-          for i in {1..5}; do
-            sleep 2
-            BACKUPS_AFTER=$(./mc ls myminio/test-bucket/backup-retention/ | wc -l)
-            if [ "$BACKUPS_AFTER" -eq 1 ]; then
-              echo "✅ DELETE_OLDER_THAN feature working correctly!"
-              break
-            fi
-            if [ $i -eq 5 ]; then
-              echo "❌ DELETE_OLDER_THAN feature failed! Expected 1 backup, found $BACKUPS_AFTER."
-              echo "Current backups:"
-              ./mc ls myminio/test-bucket/backup-retention/
-              exit 1
-            fi
-            echo "Retrying verification... ($i/5)"
-          done
+          BACKUPS_AFTER=$(./mc ls --recursive myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
+          echo "Backups after cleanup: $BACKUPS_AFTER"
+          if [ "$BACKUPS_AFTER" -eq 2 ]; then
+            echo "✅ DELETE_OLDER_THAN feature working correctly!"
+            echo "Old backup removed, recent backups preserved."
+          else
+            echo "❌ DELETE_OLDER_THAN feature failed! Expected 2 backups, found $BACKUPS_AFTER."
+            echo "Current backups:"
+            ./mc ls --recursive myminio/test-bucket/backup-retention/
+            exit 1
+          fi
 
   restore_s3_test:
     needs: backup_test
