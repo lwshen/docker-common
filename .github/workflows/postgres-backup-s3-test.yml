@@ -220,7 +220,7 @@ jobs:
             postgres-backup-s3:test
 
           # Verify we have 2 backups before cleanup
-          BACKUPS_BEFORE=$(./mc ls myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
+          BACKUPS_BEFORE=$(./mc ls --recursive myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
           echo "Backups before cleanup: $BACKUPS_BEFORE"
 
           # Now run a backup with DELETE_OLDER_THAN to clean up old files
@@ -244,7 +244,7 @@ jobs:
 
           # Verify that old backups were removed but recent ones remain
           echo "Verifying backup retention..."
-          BACKUPS_AFTER=$(./mc ls myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
+          BACKUPS_AFTER=$(./mc ls --recursive myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
           echo "Backups after cleanup: $BACKUPS_AFTER"
           if [ "$BACKUPS_AFTER" -eq 2 ]; then
             echo "✅ DELETE_OLDER_THAN feature working correctly!"
