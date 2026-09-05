@@ -8,7 +8,7 @@ apt-get install -qq --no-install-recommends ca-certificates openssl curl postgre
 
 # Add official PostgreSQL apt repository
 /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-apt-get install -qq --no-install-recommends postgresql-client-17
+apt-get install -qq --no-install-recommends postgresql-client-18
 
 # cleanup
 rm -rf /var/lib/apt/lists/*
