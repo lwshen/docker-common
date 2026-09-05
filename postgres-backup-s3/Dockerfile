@@ -21,9 +21,12 @@ ENV POSTGRES_DATABASE=None
 ENV POSTGRES_HOST=None
 ENV POSTGRES_PORT=5432
 ENV POSTGRES_USER=None
+# Placeholder sentinel, not a secret: backup.sh errors out unless it is overridden at runtime
+# hadolint ignore=DL3064
 ENV POSTGRES_PASSWORD=None
 ENV POSTGRES_EXTRA_OPTS=''
 ENV S3_ACCESS_KEY_ID=None
+# hadolint ignore=DL3064
 ENV S3_SECRET_ACCESS_KEY=None
 ENV S3_BUCKET=None
 ENV S3_REGION=us-west-1
@@ -31,6 +34,7 @@ ENV S3_PREFIX=backup
 ENV S3_ENDPOINT=None
 ENV S3_S3V4=no
 ENV SCHEDULE=None
+# hadolint ignore=DL3064
 ENV ENCRYPTION_PASSWORD=None
 ENV DELETE_OLDER_THAN=None
 
