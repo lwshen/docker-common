@@ -70,7 +70,12 @@ their passwords, since dropping and recreating a role also removes its password.
 
 ### Automatic Periodic Backups
 
-You can additionally set the `SCHEDULE` environment variable like `-e SCHEDULE="@daily"` to run the backup automatically.
+The container runs one backup immediately on every start, including restarts.
+Without `SCHEDULE`, it exits after that backup. If the initial backup fails, the
+container exits with an error before starting the scheduler.
+
+Set the `SCHEDULE` environment variable, for example `-e SCHEDULE="@daily"`, to
+continue with periodic backups after the initial backup succeeds.
 
 More information about the scheduling can be found [here](https://pkg.go.dev/github.com/robfig/cron?utm_source=godoc#hdr-Predefined_schedules).
 

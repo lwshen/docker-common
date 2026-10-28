@@ -207,13 +207,14 @@ jobs:
 
       - name: Test scheduled backup
         run: |
+          set -euo pipefail
           # Clean up previous backups
           ./mc rm --recursive --force myminio/test-bucket/backup-scheduled/
 
           # Add more data to test database
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('scheduled_backup_test');"
 
-          # Start a scheduled backup container (using a short schedule for testing)
+          # The first scheduled run is a minute away, so startup must create a backup first.
           docker run -d --name scheduled-backup --network=host \
             -e POSTGRES_DATABASE=test \
             -e POSTGRES_HOST=localhost \
@@ -226,15 +227,31 @@ jobs:
             -e S3_ENDPOINT=http://localhost:9000 \
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-scheduled \
-            -e SCHEDULE="* * * * *" \
+            -e SCHEDULE="@every 1m" \
             postgres-backup-s3:test
-            
-          # Wait for up to 70 seconds for the scheduled backup to run
+
+          echo "Waiting for the immediate startup backup..."
+          for i in {1..30}; do
+            BACKUP_COUNT=$(./mc ls --recursive myminio/test-bucket/backup-scheduled/ | awk '/[.]sql[.]gz$/ {count++} END {print count+0}')
+            if [ "$BACKUP_COUNT" -ge 1 ]; then
+              echo "Startup backup created successfully!"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              docker logs scheduled-backup
+              echo "Startup backup not created within expected time!"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Require another backup so the startup backup cannot satisfy this check.
           echo "Waiting for scheduled backup to run..."
           for i in {1..7}; do
             sleep 10
             ./mc ls --recursive myminio/test-bucket/backup-scheduled/
-            if ./mc ls --recursive myminio/test-bucket/backup-scheduled/ | grep -q ".sql.gz"; then
+            BACKUP_COUNT=$(./mc ls --recursive myminio/test-bucket/backup-scheduled/ | awk '/[.]sql[.]gz$/ {count++} END {print count+0}')
+            if [ "$BACKUP_COUNT" -ge 2 ]; then
               echo "✅ Scheduled backup created successfully!"
               break
             fi
