@@ -68,6 +68,87 @@ jobs:
         run: |
           docker build -t postgres-backup-s3:test postgres-backup-s3
 
+      - name: Test all-database backup defaults and target passwords
+        run: |
+          set -euo pipefail
+          docker exec -u postgres ${{ job.services.postgres.id }} mkdir /tmp/backup-source-tablespace
+          PGPASSWORD=postgres psql -X -v ON_ERROR_STOP=1 -h localhost -U postgres -d postgres <<'SQL'
+          CREATE ROLE backup_login LOGIN PASSWORD 'source-login-password';
+          CREATE ROLE backup_new_login LOGIN PASSWORD 'source-new-password';
+          CREATE DATABASE backup_extra OWNER backup_login;
+          CREATE TABLESPACE backup_source_space LOCATION '/tmp/backup-source-tablespace';
+          GRANT CREATE ON TABLESPACE backup_source_space TO backup_login;
+          SQL
+          PGPASSWORD=postgres psql -X -v ON_ERROR_STOP=1 -h localhost -U postgres -d backup_extra <<'SQL'
+          SET ROLE backup_login;
+          CREATE TABLE extra_data (value TEXT) TABLESPACE backup_source_space;
+          INSERT INTO extra_data VALUES ('second database restored');
+          GRANT SELECT ON extra_data TO backup_new_login;
+          SQL
+
+          for mode in default include; do
+            password_opts=()
+            if [ "$mode" = include ]; then
+              password_opts=(-e POSTGRES_DUMP_ROLE_PASSWORDS=true)
+            fi
+            docker run --rm --network=host \
+              -e POSTGRES_DATABASE=all \
+              -e POSTGRES_HOST=localhost \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              -e S3_ACCESS_KEY_ID=minio_access_key \
+              -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+              -e S3_BUCKET=test-bucket \
+              -e S3_ENDPOINT=http://localhost:9000 \
+              -e S3_PREFIX="backup-all-$mode" \
+              "${password_opts[@]}" \
+              postgres-backup-s3:test
+            ./mc cp -r "myminio/test-bucket/backup-all-$mode/" "./backup-all-$mode/"
+            gunzip -c ./backup-all-$mode/*/*.sql.gz > "all-$mode.sql"
+          done
+          if grep -Eq '^ALTER ROLE .* PASSWORD ' all-default.sql; then
+            echo 'Default all-database backup unexpectedly includes role passwords'
+            exit 1
+          fi
+          grep -Eq '^ALTER ROLE .* PASSWORD ' all-include.sql
+          if grep -Eq 'OWNER TO|^(GRANT|REVOKE) .* ON |backup_source_space' all-default.sql; then
+            echo 'Default backup unexpectedly includes ownership, object ACLs or source tablespaces'
+            exit 1
+          fi
+
+          trap 'docker rm -f all-restore-target >/dev/null 2>&1 || true' EXIT
+          docker run -d --name all-restore-target \
+            -e POSTGRES_PASSWORD=target-admin-password postgres:18
+          for attempt in {1..30}; do
+            if docker exec all-restore-target pg_isready -h 127.0.0.1 -U postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
+            -c "CREATE ROLE backup_login LOGIN PASSWORD 'target-login-password';"
+
+          # Skip only CREATE ROLE for roles deliberately pre-created on the target,
+          # so ON_ERROR_STOP catches every unexpected restore error.
+          sed -e '/^CREATE ROLE postgres;$/d' -e '/^CREATE ROLE backup_login;$/d' \
+            all-default.sql > all-restore.sql
+          docker cp all-restore.sql all-restore-target:/tmp/dump.sql
+          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /tmp/dump.sql
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d test -c 'SELECT count(*) FROM test_table')" = 3
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra -c 'SELECT value FROM extra_data')" = 'second database restored'
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
+            -c \"SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'extra_data'\")" = postgres
+          test "$(docker exec -e PGPASSWORD=target-login-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U backup_login -d postgres -c 'SELECT current_user')" = backup_login
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d postgres \
+            -c \"SELECT rolpassword IS NULL FROM pg_authid WHERE rolname = 'backup_new_login'\")" = t
+
       - name: Run backup
         run: |
           docker run --network=host \
