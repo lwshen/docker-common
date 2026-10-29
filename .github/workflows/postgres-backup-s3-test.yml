@@ -134,12 +134,12 @@ jobs:
             psql -XAt -h 127.0.0.1 -U postgres -d backup_extra -c 'SELECT value FROM extra_data')" = 'second database restored'
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
             psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
-            -c \"SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'extra_data'\")" = postgres
+            -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'extra_data'")" = postgres
           test "$(docker exec -e PGPASSWORD=target-login-password all-restore-target \
             psql -XAt -h 127.0.0.1 -U backup_login -d postgres -c 'SELECT current_user')" = backup_login
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
             psql -XAt -h 127.0.0.1 -U postgres -d postgres \
-            -c \"SELECT rolpassword IS NULL FROM pg_authid WHERE rolname = 'backup_new_login'\")" = t
+            -c "SELECT rolpassword IS NULL FROM pg_authid WHERE rolname = 'backup_new_login'")" = t
 
       - name: Run backup
         run: |
