@@ -1,0 +1,51 @@
+name: Set up MinIO for integration tests
+description: Build pinned official MinIO sources and start a local S3 endpoint.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.24.8
+        cache: false
+
+    # Community container images and legacy server downloads are no longer available.
+    - uses: actions/cache@v4
+      id: binaries
+      with:
+        path: ${{ runner.temp }}/minio-bin
+        key: minio-${{ runner.os }}-${{ runner.arch }}-go1.24.8-server20251015-client20250813
+
+    - name: Build MinIO server and client
+      if: steps.binaries.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GOBIN: ${{ runner.temp }}/minio-bin
+      run: |
+        go install github.com/minio/minio@RELEASE.2025-10-15T17-29-55Z
+        go install github.com/minio/mc@RELEASE.2025-08-13T08-35-41Z
+
+    - name: Start MinIO and wait for readiness
+      shell: bash
+      env:
+        MINIO_ROOT_USER: minio_access_key
+        MINIO_ROOT_PASSWORD: minio_secret_key
+      run: |
+        minio_bin="$RUNNER_TEMP/minio-bin"
+        nohup "$minio_bin/minio" server "$RUNNER_TEMP/minio-data" \
+          --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+          > "$RUNNER_TEMP/minio.log" 2>&1 &
+        minio_pid=$!
+        for attempt in {1..30}; do
+          if curl --fail --silent --max-time 2 http://127.0.0.1:9000/minio/health/ready; then
+            ln -s "$minio_bin/mc" "$GITHUB_WORKSPACE/mc"
+            ./mc alias set myminio http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+            exit 0
+          fi
+          if ! kill -0 "$minio_pid" 2>/dev/null; then
+            break
+          fi
+          sleep 1
+        done
+        cat "$RUNNER_TEMP/minio.log"
+        exit 1

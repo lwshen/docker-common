@@ -8,6 +8,7 @@ on:
       - postgres-restore-s3/**
       - postgres-restore-file/**
       - .github/workflows/postgres-backup-s3-test.yml
+      - .github/actions/setup-minio/**
   push:
     branches:
       - main
@@ -17,6 +18,7 @@ on:
       - postgres-restore-s3/**
       - postgres-restore-file/**
       - .github/workflows/postgres-backup-s3-test.yml
+      - .github/actions/setup-minio/**
 
 jobs:
   backup_test:
@@ -31,30 +33,20 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-      minio:
-        image: minio/minio:edge-cicd
-        env:
-          MINIO_ACCESS_KEY: minio_access_key
-          MINIO_SECRET_KEY: minio_secret_key
-        ports:
-          - 9000:9000
-        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Create test bucket in MinIO
+      - name: Set up MinIO
+        uses: ./.github/actions/setup-minio
+
+      - name: Create test bucket
         run: |
-          apt-get update && apt-get install -y wget
-          wget https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
 
       - name: Setup test database
@@ -280,9 +272,6 @@ jobs:
 
       - name: Test DELETE_OLDER_THAN feature
         run: |
-          # Create a directory for retention testing
-          ./mc mb myminio/test-bucket/backup-retention
-
           # Create multiple backups first (without DELETE_OLDER_THAN)
           echo "Creating first backup..."
           docker run --network=host \
@@ -299,8 +288,9 @@ jobs:
             -e S3_PREFIX=backup-retention \
             postgres-backup-s3:test
 
-          # Wait to ensure different timestamps
-          sleep 5
+          # Use a fixed cutoff between backups rather than a moving age threshold.
+          sleep 2
+          RETENTION_CUTOFF=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
           echo "Creating second backup..."
           docker run --network=host \
@@ -321,9 +311,7 @@ jobs:
           BACKUPS_BEFORE=$(./mc ls --recursive myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
           echo "Backups before cleanup: $BACKUPS_BEFORE"
 
-          # Now run a backup with DELETE_OLDER_THAN to clean up old files
-          # Use "10 seconds ago" which is enough to delete the first backup but not the second
-          sleep 3
+          # The first backup predates the cutoff; the second and cleanup backups do not.
           echo "Running cleanup backup..."
           docker run --network=host \
             -e POSTGRES_DATABASE=test \
@@ -337,7 +325,7 @@ jobs:
             -e S3_ENDPOINT=http://localhost:9000 \
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-retention \
-            -e DELETE_OLDER_THAN="10 seconds ago" \
+            -e DELETE_OLDER_THAN="$RETENTION_CUTOFF" \
             postgres-backup-s3:test
 
           # Verify that old backups were removed but recent ones remain
@@ -367,19 +355,10 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-      minio:
-        image: minio/minio:edge-cicd
-        env:
-          MINIO_ACCESS_KEY: minio_access_key
-          MINIO_SECRET_KEY: minio_secret_key
-        ports:
-          - 9000:9000
-        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
 
     steps:
       - name: Checkout
@@ -403,12 +382,11 @@ jobs:
           name: backup-scheduled-file
           path: backup-scheduled
 
-      - name: Setup MinIO client
+      - name: Set up MinIO
+        uses: ./.github/actions/setup-minio
+
+      - name: Populate MinIO with backup artifacts
         run: |
-          apt-get update && apt-get install -y wget
-          wget https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
           ./mc cp -r backup/ myminio/test-bucket/backup/
           ./mc ls --recursive myminio/test-bucket/backup/
@@ -526,7 +504,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

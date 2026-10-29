@@ -25,6 +25,8 @@ ENV POSTGRES_USER=None
 # hadolint ignore=DL3064
 ENV POSTGRES_PASSWORD=None
 ENV POSTGRES_EXTRA_OPTS='--no-owner --no-acl --no-tablespaces'
+# Boolean export policy, not a password or secret.
+# hadolint ignore=DL3064
 ENV POSTGRES_DUMP_ROLE_PASSWORDS=false
 ENV S3_ACCESS_KEY_ID=None
 # hadolint ignore=DL3064
