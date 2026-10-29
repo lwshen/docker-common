@@ -4,7 +4,7 @@
 set -eux
 
 apt-get update -qq
-apt-get install -qq --no-install-recommends ca-certificates openssl curl postgresql-common
+apt-get install -qq --no-install-recommends python3 ca-certificates openssl curl postgresql-common
 
 # Add official PostgreSQL apt repository
 /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y

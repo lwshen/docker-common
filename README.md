@@ -13,6 +13,13 @@ cd <image-directory>
 docker build -t <name>:<tag> .
 ```
 
+The PostgreSQL backup and restore images share validation code. Build those from
+the repository root, for example:
+
+```sh
+docker build -f postgres-backup-s3/Dockerfile -t postgres-backup-s3:local .
+```
+
 For Maven and MVND images that use version arguments:
 
 ```bash

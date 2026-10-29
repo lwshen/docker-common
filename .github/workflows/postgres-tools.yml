@@ -7,6 +7,8 @@ on:
       - postgres-backup-s3/**
       - postgres-restore-s3/**
       - postgres-restore-file/**
+      - postgres-common/**
+      - .dockerignore
       - .github/workflows/postgres-tools.yml
   push:
     branches:
@@ -16,6 +18,8 @@ on:
       - postgres-backup-s3/**
       - postgres-restore-s3/**
       - postgres-restore-file/**
+      - postgres-common/**
+      - .dockerignore
       - .github/workflows/postgres-tools.yml
 
 jobs:
@@ -84,7 +88,7 @@ jobs:
         if: success() && !contains(github.ref, 'master')
         with:
           push: false
-          context: ./${{ matrix.docker-file.path }}
+          context: .
           file: ./${{ matrix.docker-file.path }}/Dockerfile
           build-args: REFRESHED_AT=$(date +%Y-%m-%d)
           platforms: ${{ matrix.docker-file.platforms }}
@@ -102,7 +106,7 @@ jobs:
         if: success() && contains(github.ref, 'master')
         with:
           push: true
-          context: ./${{ matrix.docker-file.path }}
+          context: .
           file: ./${{ matrix.docker-file.path }}/Dockerfile
           build-args: REFRESHED_AT=$(date +%Y-%m-%d)
           platforms: ${{ matrix.docker-file.platforms }}

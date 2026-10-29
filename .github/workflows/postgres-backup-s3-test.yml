@@ -7,6 +7,8 @@ on:
       - postgres-backup-s3/**
       - postgres-restore-s3/**
       - postgres-restore-file/**
+      - postgres-common/**
+      - .dockerignore
       - .github/workflows/postgres-backup-s3-test.yml
       - .github/actions/setup-minio/**
   push:
@@ -17,10 +19,23 @@ on:
       - postgres-backup-s3/**
       - postgres-restore-s3/**
       - postgres-restore-file/**
+      - postgres-common/**
+      - .dockerignore
       - .github/workflows/postgres-backup-s3-test.yml
       - .github/actions/setup-minio/**
 
 jobs:
+  validation_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Unit tests for failure handling and SQL preparation
+        run: python3 -m unittest discover -s postgres-common/tests -v
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: PostgreSQL integration tests for restore preflight
+        run: python3 postgres-common/tests/integration.py
+
   backup_test:
     runs-on: ubuntu-latest
     services:
@@ -58,7 +73,7 @@ jobs:
 
       - name: Build postgres-backup-s3 image
         run: |
-          docker build -t postgres-backup-s3:test postgres-backup-s3
+          docker build -t postgres-backup-s3:test -f postgres-backup-s3/Dockerfile .
 
       - name: Test all-database backup defaults and target passwords
         run: |
@@ -397,7 +412,7 @@ jobs:
 
       - name: Build postgres-restore-s3 image
         run: |
-          docker build -t postgres-restore-s3:test postgres-restore-s3
+          docker build -t postgres-restore-s3:test -f postgres-restore-s3/Dockerfile .
 
       - name: Test restore from basic backup
         run: |
@@ -525,7 +540,7 @@ jobs:
 
       - name: Build postgres-restore-file image
         run: |
-          docker build -t postgres-restore-file:test postgres-restore-file
+          docker build -t postgres-restore-file:test -f postgres-restore-file/Dockerfile .
 
       - name: Test restore from file
         run: |

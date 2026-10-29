@@ -2,7 +2,7 @@ FROM golang:1.23-alpine3.21 AS build
 
 WORKDIR /app
 
-COPY main.go /app/main.go
+COPY postgres-backup-s3/main.go /app/main.go
 
 RUN go mod init github.com/itbm/postgresql-backup-s3 \
 	&& go get github.com/robfig/cron/v3@v3.0.1 \
@@ -14,8 +14,10 @@ WORKDIR /app
 
 COPY --from=build /app/out/go-cron /usr/local/bin/go-cron
 
-COPY install.sh install.sh
+COPY postgres-backup-s3/install.sh install.sh
 RUN sh install.sh && rm install.sh
+
+COPY postgres-common/backup_tools.py backup_tools.py
 
 ENV POSTGRES_DATABASE=None
 ENV POSTGRES_HOST=None
@@ -41,8 +43,8 @@ ENV SCHEDULE=None
 ENV ENCRYPTION_PASSWORD=None
 ENV DELETE_OLDER_THAN=None
 
-COPY run.sh run.sh
-COPY backup.sh backup.sh
+COPY postgres-backup-s3/run.sh run.sh
+COPY postgres-backup-s3/backup.sh backup.sh
 
 ENTRYPOINT []
 CMD ["sh", "run.sh"]
