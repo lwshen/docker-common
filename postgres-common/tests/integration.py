@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tarfile
 import time
 import uuid
 import zipfile
@@ -31,6 +32,7 @@ def main():
             for index, name in enumerate(names):
                 password = "source-password" if index == 0 else "target-password"
                 run(["docker", "run", "-d", "--name", name, "-p", "127.0.0.1::5432",
+                     "--tmpfs", "/var/lib/postgresql:rw,size=256m",
                      "-e", "POSTGRES_PASSWORD=" + password, "postgres:18"])
                 port = run(["docker", "inspect", "--format",
                             '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}', name])
@@ -39,19 +41,19 @@ def main():
                        "POSTGRES_DATABASE": "postgres", "PGPASSWORD": password,
                        "RESTORE_EXISTING_ROLES": "preserve", "DROP_PUBLIC": "no"}
                 environments.append(env)
-                for attempt in range(60):
+                for attempt in range(120):
                     ready = subprocess.run(["docker", "exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], capture_output=True)
                     if ready.returncode == 0:
                         break
                     time.sleep(0.5)
                 else:
-                    raise RuntimeError("PostgreSQL did not become ready")
+                    raise RuntimeError("PostgreSQL did not become ready: " + run(["docker", "logs", name]))
 
             source, target = environments
 
             def sql(env, query, database="postgres"):
                 return run(["psql", "-XAt", "-v", "ON_ERROR_STOP=1", "-h", env["POSTGRES_HOST"],
-                            "-p", env["POSTGRES_PORT"], "-U", "postgres", "-d", database, "-c", query], env=env)
+                            "-p", env["POSTGRES_PORT"], "-U", "postgres", "-d", "dbname='" + database.replace("\\", "\\\\").replace("'", "\\'") + "'", "-c", query], env=env)
 
             def extension(index, name, version, requires=""):
                 shared = sql(environments[index], "SELECT setting FROM pg_config WHERE name = 'SHAREDIR'")
@@ -70,8 +72,10 @@ def main():
             extension(1, "backup_search", "2.0", "backup_vector")
             extension(1, "backup_vector", "1.0")
             sql(source, "CREATE DATABASE app")
+            sql(source, "CREATE DATABASE \"odd = 'db\"")
             sql(source, "CREATE EXTENSION backup_search; CREATE TABLE items (id int); INSERT INTO items VALUES (1),(2),(3)", "app")
-            sql(source, "ALTER ROLE postgres CONNECTION LIMIT 11")
+            sql(source, "ALTER ROLE postgres CONNECTION LIMIT 11; CREATE ROLE app_owner; CREATE ROLE app_reader")
+            sql(source, "ALTER TABLE items OWNER TO app_owner; GRANT SELECT ON items TO app_reader", "app")
 
             # Use real pg_dump/psql/gzip; replace only the S3 transport with a file copy.
             bin_dir = work / "bin"
@@ -79,19 +83,20 @@ def main():
             aws = bin_dir / "aws"
             aws.write_text('#!/bin/sh\nset -eu\n[ "$1" = s3 ] && [ "$2" = cp ]\ncp "$3" "$TEST_UPLOAD"\n')
             aws.chmod(0o755)
-            archive = work / "all.sql.gz"
+            archive = work / "all.tar"
             env = {**source, "PATH": str(bin_dir) + ":" + os.environ["PATH"], "POSTGRES_DATABASE": "all",
-                   "POSTGRES_EXTRA_OPTS": "--no-owner --no-acl --no-tablespaces",
+                   "POSTGRES_EXTRA_OPTS": "auto",
                    "POSTGRES_DUMP_ROLE_PASSWORDS": "false", "S3_BUCKET": "test", "S3_PREFIX": "backup",
                    "S3_ACCESS_KEY_ID": "test", "S3_SECRET_ACCESS_KEY": "test", "S3_ENDPOINT": "None",
                    "S3_REGION": "us-west-1", "ENCRYPTION_PASSWORD": "None", "DELETE_OLDER_THAN": "None",
                    "TEST_UPLOAD": str(archive)}
             run(["sh", str(ROOT / "postgres-backup-s3/backup.sh")], env=env)
-            with gzip.open(archive, "rt") as data:
-                header = data.readline()
-                payload = data.read()
-            metadata = json.loads(header.split(": ", 1)[1])
+            with tarfile.open(archive) as data:
+                metadata = json.load(data.extractfile("manifest.json"))
+                roles = data.extractfile("roles.sql").read().decode()
             assert metadata["databases"]["app"]["extensions"]
+            assert "PASSWORD " not in roles
+            assert "postgres" in metadata["databases"]
             target["BACKUP_FILE"] = str(archive)
             result = subprocess.run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=target, text=True, capture_output=True)
             assert result.returncode != 0 and "version mismatch" in result.stderr, result.stderr
@@ -99,7 +104,10 @@ def main():
             print("PASS: metadata version mismatch fails before creating databases", flush=True)
 
             legacy = work / "legacy.sql"
-            legacy.write_text(payload)
+            with legacy.open("w") as output:
+                subprocess.run(["pg_dumpall", "-h", source["POSTGRES_HOST"], "-p", source["POSTGRES_PORT"],
+                                "-U", "postgres", "--no-role-passwords", "--no-owner", "--no-acl", "--no-tablespaces"],
+                               env=source, stdout=output, check=True)
             target["BACKUP_FILE"] = str(legacy)
             result = subprocess.run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=target, text=True, capture_output=True)
             assert result.returncode != 0 and "requires 'backup_vector'" in result.stderr, result.stderr
@@ -113,6 +121,27 @@ def main():
             assert sql(target, "SELECT rolconnlimit FROM pg_roles WHERE rolname = 'postgres'") == "-1"
             assert sql(target, "SELECT extversion FROM pg_extension WHERE extname = 'backup_search'", "app") == "1.0"
             print("PASS: full restore succeeds with matching extensions; existing target password and attributes retained", flush=True)
+
+            assert sql(target, "SELECT count(*) FROM pg_roles WHERE rolname IN ('app_owner','app_reader')") == "0"
+            assert sql(target, "SELECT tableowner FROM pg_tables WHERE tablename = 'items'", "app") == "postgres"
+            print("PASS: default restore skips global roles, ownership, ACLs and tablespaces", flush=True)
+
+            assert sql(target, "SELECT count(*) FROM pg_database WHERE datname = 'odd = ''db'") == "1"
+            # The same backup retains enough information for a faithful restore.
+            encrypted = work / "all.tar.enc"
+            run(["sh", str(ROOT / "postgres-backup-s3/backup.sh")],
+                env={**env, "TEST_UPLOAD": str(encrypted), "ENCRYPTION_PASSWORD": "test-encryption",
+                     "POSTGRES_DUMP_ROLE_PASSWORDS": "true"})
+            sql(target, "DROP DATABASE app")
+            faithful = {**target, "RESTORE_DATABASE": "app", "RESTORE_ROLES": "true",
+                        "RESTORE_NO_OWNER": "false", "RESTORE_NO_ACL": "false",
+                        "BACKUP_FILE": str(encrypted), "ENCRYPTION_PASSWORD": "test-encryption"}
+            run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=faithful)
+            assert sql(target, "SELECT tableowner FROM pg_tables WHERE tablename = 'items'", "app") == "app_owner"
+            assert sql(target, "SELECT has_table_privilege('app_reader','items','SELECT')", "app") == "t"
+            assert sql(target, "SELECT rolconnlimit FROM pg_roles WHERE rolname = 'postgres'") == "-1"
+            assert sql(target, "SELECT count(*) FROM items", "app") == "3"
+            print("PASS: encrypted selected-database restore applies ownership/ACLs and preserves existing passwords", flush=True)
 
             # Restore old gzip/zip files into fresh empty databases as well.
             sql(source, "CREATE DATABASE plain_source")
@@ -146,7 +175,7 @@ def main():
             print("PASS: SQL error stops restore and never reports success", flush=True)
     finally:
         for name in names:
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+            subprocess.run(["docker", "rm", "-fv", name], capture_output=True)
 
 
 if __name__ == "__main__":

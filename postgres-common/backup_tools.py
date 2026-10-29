@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checked SQL backups and read-only restore preflight for the PostgreSQL images."""
+"""SQL/archive backups and checked restores shared by the PostgreSQL images."""
 
 import datetime as dt
 import gzip
@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import zipfile
 
@@ -228,53 +229,35 @@ def backup():
     pg = Postgres()
     s3 = S3()
     all_databases = pg.database == "all"
-    extra = shlex.split(os.environ.get("POSTGRES_EXTRA_OPTS", "--no-owner --no-acl --no-tablespaces"))
+    options = os.environ.get("POSTGRES_EXTRA_OPTS", "auto")
+    extra = shlex.split(("" if all_databases else "--no-owner --no-acl --no-tablespaces") if options == "auto" else options)
     # These would redirect output or select an unsupported format behind our checks.
     for option in extra:
         if option in ("--help", "-?", "--version", "-V"):
             raise ValueError("POSTGRES_EXTRA_OPTS cannot replace the backup with help or version output.")
         if option in ("-f", "-F", "-Z") or option.startswith(("--file", "--format", "--compress", "-f", "-F", "-Z")):
             raise ValueError("POSTGRES_EXTRA_OPTS cannot change the managed SQL output file, format or compression.")
-    args = ["pg_dumpall" if all_databases else "pg_dump", *pg.args, *extra, "--encoding=UTF8"]
     if all_databases:
-        if not enabled("POSTGRES_DUMP_ROLE_PASSWORDS"):
-            args.append("--no-role-passwords")
-    else:
-        dbname = pg.database.replace("\\", "\\\\").replace("'", "\\'")
-        args += ["--dbname", "dbname='" + dbname + "'"]
+        enabled("POSTGRES_DUMP_ROLE_PASSWORDS")
+    args = ["pg_dump", *pg.args, *extra, "--encoding=UTF8", "--dbname", conninfo(pg.database)]
     with tempfile.TemporaryDirectory(prefix="postgres-backup-") as directory:
         work = Path(directory)
-        raw = work / "dump.sql"
-        print(f"Creating SQL backup of {pg.database}...", flush=True)
-        with raw.open("wb") as output:
-            command(args, stdout=output)
-        if raw.stat().st_size == 0:
-            raise ValueError("The dump was empty; no backup was uploaded.")
-        databases = {}
-        for name in plan(raw):
-            database = name or ("postgres" if all_databases else pg.database)
-            databases[database] = describe_database(pg, database)
-        metadata = {"format_version": 1, "database": pg.database, "databases": databases,
-                    "dump_client": command([args[0], "--version"], stdout=subprocess.PIPE,
-                                           text=True).stdout.strip(),
-                    "source_image": os.environ.get("POSTGRES_SOURCE_IMAGE"),
-                    "sql_sha256": file_hash(raw)}
-        compressed = work / "dump.sql.gz"
-        with gzip.open(compressed, "wb", compresslevel=6) as output, raw.open("rb") as source:
-            output.write(HEADER + json.dumps(metadata, ensure_ascii=True).encode() + b"\n")
-            shutil.copyfileobj(source, output)
+        if all_databases:
+            compressed = backup_bundle(pg, work, extra)
+        else:
+            compressed = backup_sql(pg, work, args)
         now = dt.datetime.now(dt.timezone.utc)
-        filename = f"{pg.database}_{now:%Y-%m-%d_%H%M%S_%f}.sql.gz"
+        filename = f"{pg.database}_{now:%Y-%m-%d_%H%M%S_%f}" + (".tar" if all_databases else ".sql.gz")
         password = os.environ.get("ENCRYPTION_PASSWORD", "None")
         if password not in ("None", "**None**", ""):
-            encrypted = work / "dump.sql.gz.enc"
+            encrypted = work / (compressed.name + ".enc")
             command(["openssl", "enc", "-aes-256-cbc", "-in", str(compressed), "-out", str(encrypted),
                      "-pass", "env:ENCRYPTION_PASSWORD"])
             compressed = encrypted
             filename += ".enc"
         key = "/".join(filter(None, [s3.prefix, now.strftime("%Y%m%d"), filename]))
         command([*s3.args, "s3", "cp", str(compressed), s3.uri(key), "--checksum-algorithm", "CRC32"])
-        print(f"SQL backup uploaded: {s3.uri(key)}", flush=True)
+        print(f"Backup uploaded: {s3.uri(key)}", flush=True)
         older_than = os.environ.get("DELETE_OLDER_THAN", "None")
         if older_than not in ("None", "**None**", ""):
             result = command(["date", "-d", older_than, "+%s"], stdout=subprocess.PIPE, text=True)
@@ -283,7 +266,84 @@ def backup():
                 created = dt.datetime.fromisoformat(obj["LastModified"].replace("Z", "+00:00"))
                 if created.timestamp() < cutoff:
                     command([*s3.args, "s3", "rm", s3.uri(obj["Key"])])
-    print("SQL backup finished", flush=True)
+    print("Backup finished", flush=True)
+
+
+def backup_sql(pg, work, args):
+    raw = work / "dump.sql"
+    print(f"Creating SQL backup of {pg.database}...", flush=True)
+    with raw.open("wb") as output:
+        command(args, stdout=output)
+    if raw.stat().st_size == 0:
+        raise ValueError("The dump was empty; no backup was uploaded.")
+    databases = {}
+    for name in plan(raw):
+        database = name or pg.database
+        databases[database] = describe_database(pg, database)
+    metadata = {"format_version": 1, "database": pg.database, "databases": databases,
+                "dump_client": command([args[0], "--version"], stdout=subprocess.PIPE,
+                                       text=True).stdout.strip(),
+                "source_image": os.environ.get("POSTGRES_SOURCE_IMAGE"),
+                "sql_sha256": file_hash(raw)}
+    compressed = work / "dump.sql.gz"
+    with gzip.open(compressed, "wb", compresslevel=6) as output, raw.open("rb") as source:
+        output.write(HEADER + json.dumps(metadata, ensure_ascii=True).encode() + b"\n")
+        shutil.copyfileobj(source, output)
+    return compressed
+
+
+def conninfo(database):
+    return "dbname='" + database.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def backup_bundle(pg, work, extra):
+    # Keep recovery policy out of the archive. Destructive/partial export options
+    # would make the manifest misleading, so bundle exports accept only these.
+    allowed = {"--verbose", "-v", "--blobs", "-b", "--large-objects"}
+    if any(option not in allowed for option in extra):
+        raise ValueError("All-database archives retain ownership, ACLs and tablespace assignments. "
+                         "POSTGRES_EXTRA_OPTS supports only --verbose/--blobs/--large-objects for all; "
+                         "use RESTORE_NO_OWNER, RESTORE_NO_ACL and RESTORE_NO_TABLESPACES when restoring.")
+    maintenance = os.environ.get("POSTGRES_MAINTENANCE_DATABASE", "postgres")
+    names = pg.query(maintenance, "SELECT COALESCE(json_agg(datname ORDER BY datname), '[]'::json) "
+                     "FROM pg_database WHERE datallowconn AND NOT datistemplate")
+    if not names:
+        raise ValueError("No connectable non-template databases found; no backup was uploaded.")
+    manifest = {"format_version": 2, "database": "all", "databases": {},
+                "source_image": os.environ.get("POSTGRES_SOURCE_IMAGE"),
+                "dump_client": command(["pg_dump", "--version"], stdout=subprocess.PIPE, text=True).stdout.strip()}
+    files = []
+    for index, name in enumerate(names):
+        path = work / f"database-{index:06d}.dump"
+        print(f"Archiving database {name!r}...", flush=True)
+        info = describe_database(pg, name)
+        command(["pg_dump", *pg.args, *extra, "--encoding=UTF8", "--format=custom",
+                 "--file", str(path), "--dbname", conninfo(name)])
+        command(["pg_restore", "--list", str(path)], stdout=subprocess.DEVNULL)
+        info.update({"file": path.name, "sha256": file_hash(path)})
+        manifest["databases"][name] = info
+        files.append(path)
+    roles = work / "roles.sql"
+    args = ["pg_dumpall", *pg.args, "--dbname", conninfo(maintenance), "--roles-only"]
+    if not enabled("POSTGRES_DUMP_ROLE_PASSWORDS"):
+        args.append("--no-role-passwords")
+    with roles.open("wb") as output:
+        command(args, stdout=output)
+    manifest["roles"] = {"file": roles.name, "sha256": file_hash(roles),
+                         "includes_passwords": enabled("POSTGRES_DUMP_ROLE_PASSWORDS")}
+    tablespaces = work / "tablespaces.sql"
+    with tablespaces.open("wb") as output:
+        command(["pg_dumpall", *pg.args, "--dbname", conninfo(maintenance), "--tablespaces-only"], stdout=output)
+    manifest["tablespaces"] = {"file": tablespaces.name, "sha256": file_hash(tablespaces)}
+    metadata = work / "manifest.json"
+    metadata.write_text(json.dumps(manifest, ensure_ascii=True, indent=2) + "\n")
+    complete = work / "COMPLETE"
+    complete.write_text(file_hash(metadata) + "\n")
+    bundle = work / "backup.tar"
+    with tarfile.open(bundle, "w") as archive:
+        for path in [metadata, *files, roles, tablespaces, complete]:
+            archive.add(path, arcname=path.name, recursive=False)
+    return bundle
 
 
 def unpack(source, work):
@@ -326,7 +386,7 @@ def unpack(source, work):
     return raw, metadata
 
 
-def preflight(pg, raw, metadata):
+def preflight(pg, raw, metadata, databases=None):
     if pg.database == "all":
         raise ValueError("Connect to an existing maintenance database such as postgres, not 'all'.")
     target = describe_database(pg, pg.database)
@@ -338,7 +398,8 @@ def preflight(pg, raw, metadata):
     """)
     available = {extension["name"]: extension for extension in available}
     existing = pg.query(pg.database, "SELECT COALESCE(json_agg(datname), '[]'::json) FROM pg_database")
-    databases = plan(raw)
+    if databases is None:
+        databases = plan(raw)
     if not metadata:
         print("Legacy backup: source extension versions/checksum are unavailable; checking declared dependencies.",
               file=sys.stderr)
@@ -381,13 +442,34 @@ def preflight(pg, raw, metadata):
 
 
 def restore(source, work):
+    source = Path(source)
+    if source.name.endswith((".tar", ".tar.enc")):
+        if source.name.endswith(".enc"):
+            setting("ENCRYPTION_PASSWORD")
+            decrypted = work / "backup.tar"
+            command(["openssl", "enc", "-d", "-aes-256-cbc", "-in", str(source), "-out", str(decrypted),
+                     "-pass", "env:ENCRYPTION_PASSWORD"])
+            source = decrypted
+        restore_bundle(source, work)
+        return
+    if os.environ.get("RESTORE_DATABASE"):
+        raise ValueError("Database selection requires an archive bundle; legacy SQL cannot be filtered safely.")
     pg = Postgres()
     raw, metadata = unpack(source, work)
     roles, multiple = preflight(pg, raw, metadata)
+    prepared = prepare_roles(raw, work / "prepared.sql", roles)
+    if os.environ.get("DROP_PUBLIC", "no") == "yes":
+        if multiple:
+            raise ValueError("DROP_PUBLIC=yes is not supported for all-database backups.")
+        command([*pg.psql(pg.database), "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"])
+    command([*pg.psql(pg.database), "-f", str(prepared)])
+    print("Restore complete", flush=True)
+
+
+def prepare_roles(raw, prepared, roles):
     role_policy = os.environ.get("RESTORE_EXISTING_ROLES", "preserve")
     if role_policy not in ("preserve", "apply"):
         raise ValueError("RESTORE_EXISTING_ROLES must be preserve or apply.")
-    prepared = work / "prepared.sql"
     with prepared.open("w", encoding="utf-8", newline="") as output:
         for kind, chunk in sql_chunks(raw):
             match = ROLE.match(chunk.strip()) if kind == "sql" else None
@@ -397,24 +479,94 @@ def restore(source, work):
                 output.write("-- Existing target role definition preserved.\n")
             else:
                 output.write(chunk)
+    return prepared
+
+
+def read_bundle(source, work):
+    """Extract only regular, flat files; never follow archive links or paths."""
+    destination = work / "bundle"
+    destination.mkdir()
+    with tarfile.open(source, "r:") as archive:
+        seen = set()
+        for member in archive:
+            if (not member.isfile() or member.name in seen or
+                    not re.fullmatch(r"manifest\.json|COMPLETE|roles\.sql|tablespaces\.sql|database-[0-9]{6}\.dump", member.name)):
+                raise ValueError("Invalid or duplicate backup bundle member.")
+            seen.add(member.name)
+            with archive.extractfile(member) as src, (destination / member.name).open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+    metadata = destination / "manifest.json"
+    complete = destination / "COMPLETE"
+    if not metadata.is_file() or not complete.is_file() or complete.read_text().strip() != file_hash(metadata):
+        raise ValueError("Incomplete backup bundle or manifest checksum mismatch.")
+    manifest = json.loads(metadata.read_text())
+    if manifest.get("format_version") != 2 or manifest.get("database") != "all" or not manifest.get("databases"):
+        raise ValueError("Unsupported or empty backup bundle manifest.")
+    records = [*manifest["databases"].values(), manifest["roles"], manifest["tablespaces"]]
+    expected = {"manifest.json", "COMPLETE"}
+    for index, record in enumerate(records):
+        name = record["file"]
+        pattern = (r"database-[0-9]{6}\.dump" if index < len(manifest["databases"])
+                   else r"roles\.sql" if index == len(manifest["databases"]) else r"tablespaces\.sql")
+        if not re.fullmatch(pattern, name) or name in expected:
+            raise ValueError("Invalid backup manifest file reference.")
+        expected.add(name)
+        path = destination / name
+        if not path.is_file() or file_hash(path) != record["sha256"]:
+            raise ValueError(f"Backup file checksum mismatch: {name}; restore was not started.")
+    if seen != expected:
+        raise ValueError("Backup bundle does not match its manifest.")
+    return destination, manifest
+
+
+def restore_bundle(source, work):
+    folder, manifest = read_bundle(source, work)
+    pg = Postgres()
+    options = []
+    for variable, option in (("RESTORE_NO_OWNER", "--no-owner"), ("RESTORE_NO_ACL", "--no-acl"),
+                             ("RESTORE_NO_TABLESPACES", "--no-tablespaces")):
+        if enabled(variable, "true"):
+            options.append(option)
+    restore_roles = enabled("RESTORE_ROLES")
+    restore_tablespaces = enabled("RESTORE_TABLESPACES")
+    selected = os.environ.get("RESTORE_DATABASE", "")
+    if selected and selected not in manifest["databases"]:
+        raise ValueError(f"Database {selected!r} is not in this backup.")
+    databases = {name: info for name, info in manifest["databases"].items() if not selected or name == selected}
     if os.environ.get("DROP_PUBLIC", "no") == "yes":
-        if multiple:
-            raise ValueError("DROP_PUBLIC=yes is not supported for all-database backups.")
-        command([*pg.psql(pg.database), "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"])
-    command([*pg.psql(pg.database), "-f", str(prepared)])
+        raise ValueError("DROP_PUBLIC=yes is not supported for archive bundles; restore into empty databases.")
+    # Parse schemas and validate ALL selected databases before any target mutation.
+    declarations = {}
+    for index, (name, info) in enumerate(databases.items()):
+        schema = work / f"schema-{index}.sql"
+        command(["pg_restore", "--schema-only", "--file", str(schema), str(folder / info["file"])])
+        declarations[name] = plan(schema)[None]
+    roles, _ = preflight(pg, None, manifest, declarations)
+    prepared = prepare_roles(folder / manifest["roles"]["file"], work / "roles-prepared.sql", roles)
+    if restore_roles:
+        command([*pg.psql(pg.database), "-f", str(prepared)])
+    if restore_tablespaces:
+        command([*pg.psql(pg.database), "-f", str(folder / manifest["tablespaces"]["file"])])
+    existing = pg.query(pg.database, "SELECT COALESCE(json_agg(datname), '[]'::json) FROM pg_database")
+    for name, info in databases.items():
+        print(f"Restoring database {name!r}...", flush=True)
+        creation = [] if name in existing else ["--create"]
+        database = name if name in existing else pg.database
+        command(["pg_restore", *pg.args, "--exit-on-error", *options, *creation,
+                 "--dbname", conninfo(database), str(folder / info["file"])])
     print("Restore complete", flush=True)
 
 
 def restore_s3():
     s3 = S3()
-    objects = [obj for obj in s3.objects() if obj["Key"].endswith((".sql.gz", ".sql.gz.enc"))]
+    objects = [obj for obj in s3.objects() if obj["Key"].endswith((".sql.gz", ".sql.gz.enc", ".tar", ".tar.enc"))]
     if not objects:
-        raise ValueError("No SQL backups found in the configured S3 prefix.")
+        raise ValueError("No supported backups found in the configured S3 prefix.")
     latest = max(objects, key=lambda obj: (obj["LastModified"], obj["Key"]))
     print(f"Restoring {s3.uri(latest['Key'])}", flush=True)
     with tempfile.TemporaryDirectory(prefix="postgres-restore-") as directory:
         work = Path(directory)
-        downloaded = work / ("backup.sql.gz.enc" if latest["Key"].endswith(".enc") else "backup.sql.gz")
+        downloaded = work / Path(latest["Key"]).name
         command([*s3.args, "s3", "cp", s3.uri(latest["Key"]), str(downloaded)])
         restore(downloaded, work)
 
@@ -430,7 +582,7 @@ def main():
                 restore(setting("BACKUP_FILE", "/backup/dump.sql"), Path(directory))
         else:
             raise ValueError("Unknown operation.")
-    except (ValueError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile, EOFError) as error:
+    except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError, zipfile.BadZipFile, tarfile.TarError, EOFError) as error:
         # CalledProcessError may include SQL or connection arguments; the child
         # already printed its diagnostic, so do not echo its entire command.
         message = f"Command failed with exit status {error.returncode}." if isinstance(error, subprocess.CalledProcessError) else str(error)

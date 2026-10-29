@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 from unittest import mock
 import zipfile
@@ -154,7 +155,7 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.run_backup("upload")
-        self.assertNotIn("SQL backup finished", output.getvalue())
+        self.assertNotIn("Backup finished", output.getvalue())
 
     def test_help_cannot_be_uploaded_as_a_backup(self):
         os.environ["POSTGRES_EXTRA_OPTS"] = "--help"
@@ -162,6 +163,123 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
                 self.assertRaisesRegex(ValueError, "help or version"):
             tools.backup()
         command.assert_not_called()
+
+
+class BundleTests(TempCase):
+    def bundle(self, corrupt=False, complete=True):
+        files = {}
+        for name, text in {"database-000000.dump": "custom archive", "roles.sql": "CREATE ROLE business;\n",
+                           "tablespaces.sql": "-- no custom tablespaces\n"}.items():
+            files[name] = self.write(text, name)
+        manifest = {"format_version": 2, "database": "all", "databases": {"app": {
+            "file": "database-000000.dump", "sha256": tools.file_hash(files["database-000000.dump"])}},
+            "roles": {"file": "roles.sql", "sha256": tools.file_hash(files["roles.sql"])},
+            "tablespaces": {"file": "tablespaces.sql", "sha256": tools.file_hash(files["tablespaces.sql"])}}
+        files["manifest.json"] = self.write(json.dumps(manifest), "manifest.json")
+        if complete:
+            files["COMPLETE"] = self.write(tools.file_hash(files["manifest.json"]), "COMPLETE")
+        if corrupt:
+            files["database-000000.dump"].write_text("damaged")
+        archive = self.work / "all.tar"
+        with tarfile.open(archive, "w") as output:
+            for name, file in files.items():
+                output.add(file, arcname=name)
+        return archive
+
+    def test_corrupt_or_incomplete_bundle_never_connects(self):
+        for corrupt, complete in [(True, True), (False, False)]:
+            with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as temp:
+                archive = self.bundle(corrupt, complete)
+                with mock.patch.object(tools, "Postgres") as pg, self.assertRaisesRegex(ValueError, "checksum|Incomplete"):
+                    tools.restore_bundle(archive, Path(temp))
+                pg.assert_not_called()
+
+    def test_archive_path_traversal_is_rejected(self):
+        archive = self.work / "all.tar"
+        with tarfile.open(archive, "w") as output:
+            output.add(self.write("bad"), arcname="../outside.sql")
+        with self.assertRaisesRegex(ValueError, "Invalid"):
+            tools.read_bundle(archive, self.work)
+        self.assertFalse((self.work.parent / "outside.sql").exists())
+
+    def restore_policy(self, faithful):
+        archive = self.bundle()
+        if faithful:
+            os.environ.update(RESTORE_ROLES="true", RESTORE_NO_OWNER="false", RESTORE_NO_ACL="false",
+                              RESTORE_NO_TABLESPACES="false", RESTORE_DATABASE="app")
+        pg = mock.Mock(database="postgres", args=["-h", "localhost"])
+        pg.query.return_value = ["postgres"]
+        pg.psql.return_value = ["psql"]
+        calls = []
+
+        def command(args, **kwargs):
+            calls.append(args)
+            if "--schema-only" in args:
+                Path(args[args.index("--file") + 1]).write_text("CREATE EXTENSION example;")
+
+        with mock.patch.object(tools, "Postgres", return_value=pg), \
+                mock.patch.object(tools, "preflight", return_value=({"postgres"}, True)) as check, \
+                mock.patch.object(tools, "command", side_effect=command):
+            tools.restore_bundle(archive, self.work)
+        self.assertEqual(check.call_args.args[3], {"app": ["example"]})
+        restores = [args for args in calls if "--exit-on-error" in args]
+        self.assertEqual(len(restores), 1)
+        for option in ["--no-owner", "--no-acl", "--no-tablespaces"]:
+            self.assertEqual(option in restores[0], not faithful)
+        self.assertIn("--create", restores[0])
+        role_calls = [args for args in calls if args[0] != "pg_restore"]
+        self.assertEqual(len(role_calls), 1 if faithful else 0)
+
+    def test_default_policy_does_not_restore_roles_or_source_placement(self):
+        self.restore_policy(False)
+
+    def test_faithful_policy_uses_same_backup(self):
+        self.restore_policy(True)
+
+    def test_unknown_database_never_connects(self):
+        os.environ["RESTORE_DATABASE"] = "unknown"
+        with mock.patch.object(tools, "command") as command, self.assertRaisesRegex(ValueError, "not in this backup"):
+            tools.restore_bundle(self.bundle(), self.work)
+        command.assert_not_called()
+
+    def test_s3_selects_latest_bundle_and_retains_encrypted_suffix(self):
+        s3 = mock.Mock(args=["aws"], prefix="backup")
+        s3.objects.return_value = [
+            {"Key": "backup/old.sql.gz", "LastModified": "2026-10-28T00:00:00Z"},
+            {"Key": "backup/new.tar.enc", "LastModified": "2026-10-29T00:00:00Z"},
+            {"Key": "backup/incomplete.tmp", "LastModified": "2026-10-30T00:00:00Z"}]
+        with mock.patch.object(tools, "S3", return_value=s3), mock.patch.object(tools, "command"), \
+                mock.patch.object(tools, "restore") as restore:
+            tools.restore_s3()
+        self.assertEqual(restore.call_args.args[0].name, "new.tar.enc")
+
+    def test_legacy_sql_selection_is_rejected_before_connecting(self):
+        os.environ["RESTORE_DATABASE"] = "app"
+        with mock.patch.object(tools, "Postgres") as pg, self.assertRaisesRegex(ValueError, "selection requires"):
+            tools.restore(self.write("CREATE DATABASE app;"), self.work)
+        pg.assert_not_called()
+
+    def test_all_database_failure_never_uploads(self):
+        os.environ["POSTGRES_DATABASE"] = "all"
+        pg = mock.Mock(database="all", args=[])
+        pg.query.return_value = ["first", "second"]
+        calls = []
+
+        def command(args, **kwargs):
+            calls.append(args)
+            if "--version" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="pg_dump 18")
+            if args[0] == "pg_dump":
+                if "second" in args[-1]:
+                    raise subprocess.CalledProcessError(1, args)
+                Path(args[args.index("--file") + 1]).write_bytes(b"archive")
+
+        with mock.patch.object(tools, "Postgres", return_value=pg), mock.patch.object(tools, "S3"), \
+                mock.patch.object(tools, "describe_database", return_value={}), \
+                mock.patch.object(tools, "command", side_effect=command), self.assertRaises(subprocess.CalledProcessError):
+            tools.backup()
+        self.assertEqual(len([args for args in calls if args[0] == "pg_dump" and "--version" not in args]), 2)
+        self.assertFalse(any(args[0] == "aws" for args in calls))
 
 
 class PreflightTests(TempCase):

@@ -26,8 +26,8 @@ docker run -d \
 - `POSTGRES_PASSWORD`: The PostgreSQL password
 - `BACKUP_FILE`: Path to the backup file inside the container (default: /backup/dump.sql)
 - `DROP_PUBLIC`: Whether to drop and recreate the public schema (yes/no, default: no)
-- `ENCRYPTION_PASSWORD`: Required for `.sql.gz.enc` files, if encrypted.
-- `RESTORE_EXISTING_ROLES`: `preserve` (default) keeps existing target role definitions/passwords; `apply` applies source role alterations. Duplicate role creation is skipped in either mode. New roles and role memberships are still restored.
+- `ENCRYPTION_PASSWORD`: Required for `.sql.gz.enc` or `.tar.enc` files, if encrypted.
+- `RESTORE_EXISTING_ROLES`: `preserve` (default) keeps existing target role definitions/passwords; `apply` applies source role alterations. Duplicate role creation is skipped in either mode. New roles and memberships are restored for legacy SQL, or when `RESTORE_ROLES=true` for bundles.
 
 ## Backup File Format
 
@@ -37,6 +37,40 @@ The backup file can be:
 - A gzipped SQL dump file (.sql.gz)
 - A zipped SQL dump containing exactly one file (.zip)
 - An encrypted gzip SQL dump (.sql.gz.enc)
+- An all-database archive bundle (.tar), optionally encrypted (.tar.enc)
+
+## Archive bundles and restore policies
+
+New `POSTGRES_DATABASE=all` backups are `.tar` bundles containing a custom archive
+for each database, separate global scripts, checksums and a completion marker.
+All files are validated before the target is changed. Use an existing maintenance
+database such as `POSTGRES_DATABASE=postgres`. Databases restore to their original
+names; existing databases should be empty.
+
+| Variable               | Default  | Description                                                                                      |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| RESTORE_DATABASE       | unset    | Exact source database name to restore; unset restores every database.                            |
+| RESTORE_NO_OWNER       | true     | Skip source ownership.                                                                           |
+| RESTORE_NO_ACL         | true     | Skip source grants/revocations.                                                                  |
+| RESTORE_NO_TABLESPACES | true     | Skip source storage assignments.                                                                 |
+| RESTORE_ROLES          | false    | Apply the separate role script, including new roles and memberships.                             |
+| RESTORE_EXISTING_ROLES | preserve | Preserve existing role attributes/passwords; `apply` permits alterations when roles are enabled. |
+| RESTORE_TABLESPACES    | false    | Apply tablespace definitions; prepare paths first and avoid existing name conflicts.             |
+
+For example, use `RESTORE_DATABASE=app` to restore only `app`. To retain ownership
+and grants from the same backup, also use `RESTORE_ROLES=true`,
+`RESTORE_NO_OWNER=false` and `RESTORE_NO_ACL=false`. For source storage assignments,
+prepare target paths and use `RESTORE_TABLESPACES=true RESTORE_NO_TABLESPACES=false`.
+Role/tablespace scripts are cluster-wide even for a selected database. Named roles
+referenced by policies or other SQL must already exist, or enable `RESTORE_ROLES`. Password
+hashes are included only if the backup used `POSTGRES_DUMP_ROLE_PASSWORDS=true`.
+`DROP_PUBLIC=yes` is rejected for bundles. Archive restore uses
+`pg_restore --exit-on-error`; earlier changes may remain after a failure.
+
+These switches apply to bundles. Legacy SQL restore behavior is already encoded
+in its statements: missing roles/memberships are restored and existing roles are
+preserved by default. Archive filters do not apply to legacy SQL files; `RESTORE_DATABASE` is rejected
+for these files. See [backup formats](../postgres-backup-s3/README.md) for details.
 
 ## Restore validation
 
@@ -55,7 +89,7 @@ is rejected for dumps that switch databases.
 
 All-database backups should initially connect to an existing maintenance database
 such as `postgres`, using a superuser. Existing target role definitions/passwords
-are preserved by default, while new roles and role memberships are restored.
+are preserved by default, while new roles and role memberships are restored for legacy SQL.
 
 Build from the repository root to include the shared validation helper:
 

@@ -10,9 +10,42 @@ This will potentially put your database in a very bad state or complete destroy 
 
 This is made to restore a backup made from postgres-backup-s3, if you backup came from somewhere else please check your format.
 
-- The S3 prefix must contain only backups you intend to restore. The newest `.sql.gz` or `.sql.gz.enc` object is selected by modification time (with the key as a tie-breaker).
+- The S3 prefix must contain only backups you intend to restore. The newest `.tar`, `.tar.enc`, `.sql.gz` or `.sql.gz.enc` object is selected by modification time (with the key as a tie-breaker).
 - S3 object listing is paginated automatically by the AWS CLI.
-- Backups are gzip-compressed SQL, optionally encrypted with the existing OpenSSL format.
+- Backups are archive bundles or gzip-compressed SQL, optionally encrypted with the existing OpenSSL format.
+
+## Archive bundles and restore policies
+
+New `POSTGRES_DATABASE=all` backups are `.tar` bundles containing a custom archive
+for each database, separate global scripts, checksums and a completion marker.
+All files are validated before the target is changed. Use an existing maintenance
+database such as `POSTGRES_DATABASE=postgres`. Databases restore to their original
+names; existing databases should be empty.
+
+| Variable               | Default  | Description                                                                                      |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| RESTORE_DATABASE       | unset    | Exact source database name to restore; unset restores every database.                            |
+| RESTORE_NO_OWNER       | true     | Skip source ownership.                                                                           |
+| RESTORE_NO_ACL         | true     | Skip source grants/revocations.                                                                  |
+| RESTORE_NO_TABLESPACES | true     | Skip source storage assignments.                                                                 |
+| RESTORE_ROLES          | false    | Apply the separate role script, including new roles and memberships.                             |
+| RESTORE_EXISTING_ROLES | preserve | Preserve existing role attributes/passwords; `apply` permits alterations when roles are enabled. |
+| RESTORE_TABLESPACES    | false    | Apply tablespace definitions; prepare paths first and avoid existing name conflicts.             |
+
+For example, use `RESTORE_DATABASE=app` to restore only `app`. To retain ownership
+and grants from the same backup, also use `RESTORE_ROLES=true`,
+`RESTORE_NO_OWNER=false` and `RESTORE_NO_ACL=false`. For source storage assignments,
+prepare target paths and use `RESTORE_TABLESPACES=true RESTORE_NO_TABLESPACES=false`.
+Role/tablespace scripts are cluster-wide even for a selected database. Named roles
+referenced by policies or other SQL must already exist, or enable `RESTORE_ROLES`. Password
+hashes are included only if the backup used `POSTGRES_DUMP_ROLE_PASSWORDS=true`.
+`DROP_PUBLIC=yes` is rejected for bundles. Archive restore uses
+`pg_restore --exit-on-error`; earlier changes may remain after a failure.
+
+These switches apply to bundles. Legacy SQL restore behavior is already encoded
+in its statements: missing roles/memberships are restored and existing roles are
+preserved by default. Archive filters do not apply to legacy SQL files; `RESTORE_DATABASE` is rejected
+for these files. See [backup formats](../postgres-backup-s3/README.md) for details.
 
 ## Restore validation
 
@@ -34,7 +67,7 @@ SQL runs with `psql -X -v ON_ERROR_STOP=1`. Unexpected errors return failure and
 not print `Restore complete`; changes committed before an SQL error are not rolled
 back across the entire dump. Start with a clean target when retrying a failed restore.
 
-By default `RESTORE_EXISTING_ROLES=preserve` skips top-level `CREATE ROLE` and
+For legacy SQL, `RESTORE_EXISTING_ROLES=preserve` skips top-level `CREATE ROLE` and
 `ALTER ROLE` statements for roles already on the target, preserving their existing
 passwords and attributes. New roles and role memberships from the dump are still
 restored. Set `RESTORE_EXISTING_ROLES=apply` to apply source `ALTER ROLE` statements

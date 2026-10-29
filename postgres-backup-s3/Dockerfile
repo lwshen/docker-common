@@ -26,7 +26,8 @@ ENV POSTGRES_USER=None
 # Placeholder sentinel, not a secret: backup.sh errors out unless it is overridden at runtime
 # hadolint ignore=DL3064
 ENV POSTGRES_PASSWORD=None
-ENV POSTGRES_EXTRA_OPTS='--no-owner --no-acl --no-tablespaces'
+ENV POSTGRES_EXTRA_OPTS=auto
+ENV POSTGRES_MAINTENANCE_DATABASE=postgres
 # Boolean export policy, not a password or secret.
 # hadolint ignore=DL3064
 ENV POSTGRES_DUMP_ROLE_PASSWORDS=false
