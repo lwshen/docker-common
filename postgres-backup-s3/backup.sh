@@ -65,7 +65,15 @@ DATE_FOLDER=$(date +"%Y%m%d")
 DEST_FILE=${POSTGRES_DATABASE}_$(date +"%Y-%m-%d_%H%M%S").sql.gz
 
 if [ "${POSTGRES_DATABASE}" = "all" ]; then
-  pg_dumpall $POSTGRES_HOST_OPTS | gzip > $SRC_FILE
+  case "${POSTGRES_DUMP_ROLE_PASSWORDS:-false}" in
+    false) ROLE_PASSWORD_OPTS="--no-role-passwords" ;;
+    true) ROLE_PASSWORD_OPTS="" ;;
+    *)
+      >&2 echo "POSTGRES_DUMP_ROLE_PASSWORDS must be true or false."
+      exit 1
+      ;;
+  esac
+  pg_dumpall $POSTGRES_HOST_OPTS $ROLE_PASSWORD_OPTS | gzip > $SRC_FILE
 else
   pg_dump $POSTGRES_HOST_OPTS $POSTGRES_DATABASE | gzip > $SRC_FILE
 fi

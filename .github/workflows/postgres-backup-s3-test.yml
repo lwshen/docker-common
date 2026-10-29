@@ -8,6 +8,7 @@ on:
       - postgres-restore-s3/**
       - postgres-restore-file/**
       - .github/workflows/postgres-backup-s3-test.yml
+      - .github/actions/setup-minio/**
   push:
     branches:
       - main
@@ -17,6 +18,7 @@ on:
       - postgres-restore-s3/**
       - postgres-restore-file/**
       - .github/workflows/postgres-backup-s3-test.yml
+      - .github/actions/setup-minio/**
 
 jobs:
   backup_test:
@@ -31,30 +33,20 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-      minio:
-        image: minio/minio:edge-cicd
-        env:
-          MINIO_ACCESS_KEY: minio_access_key
-          MINIO_SECRET_KEY: minio_secret_key
-        ports:
-          - 9000:9000
-        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Create test bucket in MinIO
+      - name: Set up MinIO
+        uses: ./.github/actions/setup-minio
+
+      - name: Create test bucket
         run: |
-          apt-get update && apt-get install -y wget
-          wget https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
 
       - name: Setup test database
@@ -67,6 +59,87 @@ jobs:
       - name: Build postgres-backup-s3 image
         run: |
           docker build -t postgres-backup-s3:test postgres-backup-s3
+
+      - name: Test all-database backup defaults and target passwords
+        run: |
+          set -euo pipefail
+          docker exec -u postgres ${{ job.services.postgres.id }} mkdir /tmp/backup-source-tablespace
+          PGPASSWORD=postgres psql -X -v ON_ERROR_STOP=1 -h localhost -U postgres -d postgres <<'SQL'
+          CREATE ROLE backup_login LOGIN PASSWORD 'source-login-password';
+          CREATE ROLE backup_new_login LOGIN PASSWORD 'source-new-password';
+          CREATE DATABASE backup_extra OWNER backup_login;
+          CREATE TABLESPACE backup_source_space LOCATION '/tmp/backup-source-tablespace';
+          GRANT CREATE ON TABLESPACE backup_source_space TO backup_login;
+          SQL
+          PGPASSWORD=postgres psql -X -v ON_ERROR_STOP=1 -h localhost -U postgres -d backup_extra <<'SQL'
+          SET ROLE backup_login;
+          CREATE TABLE extra_data (value TEXT) TABLESPACE backup_source_space;
+          INSERT INTO extra_data VALUES ('second database restored');
+          GRANT SELECT ON extra_data TO backup_new_login;
+          SQL
+
+          for mode in default include; do
+            password_opts=()
+            if [ "$mode" = include ]; then
+              password_opts=(-e POSTGRES_DUMP_ROLE_PASSWORDS=true)
+            fi
+            docker run --rm --network=host \
+              -e POSTGRES_DATABASE=all \
+              -e POSTGRES_HOST=localhost \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              -e S3_ACCESS_KEY_ID=minio_access_key \
+              -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+              -e S3_BUCKET=test-bucket \
+              -e S3_ENDPOINT=http://localhost:9000 \
+              -e S3_PREFIX="backup-all-$mode" \
+              "${password_opts[@]}" \
+              postgres-backup-s3:test
+            ./mc cp -r "myminio/test-bucket/backup-all-$mode/" "./backup-all-$mode/"
+            gunzip -c ./backup-all-$mode/*/*.sql.gz > "all-$mode.sql"
+          done
+          if grep -Eq '^ALTER ROLE .* PASSWORD ' all-default.sql; then
+            echo 'Default all-database backup unexpectedly includes role passwords'
+            exit 1
+          fi
+          grep -Eq '^ALTER ROLE .* PASSWORD ' all-include.sql
+          if grep -Eq 'OWNER TO|^(GRANT|REVOKE) .* ON |backup_source_space' all-default.sql; then
+            echo 'Default backup unexpectedly includes ownership, object ACLs or source tablespaces'
+            exit 1
+          fi
+
+          trap 'docker rm -f all-restore-target >/dev/null 2>&1 || true' EXIT
+          docker run -d --name all-restore-target \
+            -e POSTGRES_PASSWORD=target-admin-password postgres:18
+          for attempt in {1..30}; do
+            if docker exec all-restore-target pg_isready -h 127.0.0.1 -U postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
+            -c "CREATE ROLE backup_login LOGIN PASSWORD 'target-login-password';"
+
+          # Skip only CREATE ROLE for roles deliberately pre-created on the target,
+          # so ON_ERROR_STOP catches every unexpected restore error.
+          sed -e '/^CREATE ROLE postgres;$/d' -e '/^CREATE ROLE backup_login;$/d' \
+            all-default.sql > all-restore.sql
+          docker cp all-restore.sql all-restore-target:/tmp/dump.sql
+          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /tmp/dump.sql
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d test -c 'SELECT count(*) FROM test_table')" = 3
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra -c 'SELECT value FROM extra_data')" = 'second database restored'
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
+            -c "SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'extra_data'")" = postgres
+          test "$(docker exec -e PGPASSWORD=target-login-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U backup_login -d postgres -c 'SELECT current_user')" = backup_login
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d postgres \
+            -c "SELECT rolpassword IS NULL FROM pg_authid WHERE rolname = 'backup_new_login'")" = t
 
       - name: Run backup
         run: |
@@ -126,13 +199,14 @@ jobs:
 
       - name: Test scheduled backup
         run: |
+          set -euo pipefail
           # Clean up previous backups
           ./mc rm --recursive --force myminio/test-bucket/backup-scheduled/
 
           # Add more data to test database
           PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "INSERT INTO test_table (name) VALUES ('scheduled_backup_test');"
 
-          # Start a scheduled backup container (using a short schedule for testing)
+          # The first scheduled run is a minute away, so startup must create a backup first.
           docker run -d --name scheduled-backup --network=host \
             -e POSTGRES_DATABASE=test \
             -e POSTGRES_HOST=localhost \
@@ -145,15 +219,31 @@ jobs:
             -e S3_ENDPOINT=http://localhost:9000 \
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-scheduled \
-            -e SCHEDULE="* * * * *" \
+            -e SCHEDULE="@every 1m" \
             postgres-backup-s3:test
-            
-          # Wait for up to 70 seconds for the scheduled backup to run
+
+          echo "Waiting for the immediate startup backup..."
+          for i in {1..30}; do
+            BACKUP_COUNT=$(./mc ls --recursive myminio/test-bucket/backup-scheduled/ | awk '/[.]sql[.]gz$/ {count++} END {print count+0}')
+            if [ "$BACKUP_COUNT" -ge 1 ]; then
+              echo "Startup backup created successfully!"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              docker logs scheduled-backup
+              echo "Startup backup not created within expected time!"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Require another backup so the startup backup cannot satisfy this check.
           echo "Waiting for scheduled backup to run..."
           for i in {1..7}; do
             sleep 10
             ./mc ls --recursive myminio/test-bucket/backup-scheduled/
-            if ./mc ls --recursive myminio/test-bucket/backup-scheduled/ | grep -q ".sql.gz"; then
+            BACKUP_COUNT=$(./mc ls --recursive myminio/test-bucket/backup-scheduled/ | awk '/[.]sql[.]gz$/ {count++} END {print count+0}')
+            if [ "$BACKUP_COUNT" -ge 2 ]; then
               echo "✅ Scheduled backup created successfully!"
               break
             fi
@@ -182,9 +272,6 @@ jobs:
 
       - name: Test DELETE_OLDER_THAN feature
         run: |
-          # Create a directory for retention testing
-          ./mc mb myminio/test-bucket/backup-retention
-
           # Create multiple backups first (without DELETE_OLDER_THAN)
           echo "Creating first backup..."
           docker run --network=host \
@@ -201,8 +288,9 @@ jobs:
             -e S3_PREFIX=backup-retention \
             postgres-backup-s3:test
 
-          # Wait to ensure different timestamps
-          sleep 5
+          # Use a fixed cutoff between backups rather than a moving age threshold.
+          sleep 2
+          RETENTION_CUTOFF=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
           echo "Creating second backup..."
           docker run --network=host \
@@ -223,9 +311,7 @@ jobs:
           BACKUPS_BEFORE=$(./mc ls --recursive myminio/test-bucket/backup-retention/ | grep ".sql.gz" | wc -l)
           echo "Backups before cleanup: $BACKUPS_BEFORE"
 
-          # Now run a backup with DELETE_OLDER_THAN to clean up old files
-          # Use "10 seconds ago" which is enough to delete the first backup but not the second
-          sleep 3
+          # The first backup predates the cutoff; the second and cleanup backups do not.
           echo "Running cleanup backup..."
           docker run --network=host \
             -e POSTGRES_DATABASE=test \
@@ -239,7 +325,7 @@ jobs:
             -e S3_ENDPOINT=http://localhost:9000 \
             -e S3_S3V4=yes \
             -e S3_PREFIX=backup-retention \
-            -e DELETE_OLDER_THAN="10 seconds ago" \
+            -e DELETE_OLDER_THAN="$RETENTION_CUTOFF" \
             postgres-backup-s3:test
 
           # Verify that old backups were removed but recent ones remain
@@ -269,19 +355,10 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-      minio:
-        image: minio/minio:edge-cicd
-        env:
-          MINIO_ACCESS_KEY: minio_access_key
-          MINIO_SECRET_KEY: minio_secret_key
-        ports:
-          - 9000:9000
-        options: --health-cmd "curl -s http://localhost:9000/minio/health/live"
 
     steps:
       - name: Checkout
@@ -305,12 +382,11 @@ jobs:
           name: backup-scheduled-file
           path: backup-scheduled
 
-      - name: Setup MinIO client
+      - name: Set up MinIO
+        uses: ./.github/actions/setup-minio
+
+      - name: Populate MinIO with backup artifacts
         run: |
-          apt-get update && apt-get install -y wget
-          wget https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set myminio http://localhost:9000 minio_access_key minio_secret_key
           ./mc mb myminio/test-bucket
           ./mc cp -r backup/ myminio/test-bucket/backup/
           ./mc ls --recursive myminio/test-bucket/backup/
@@ -428,7 +504,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
