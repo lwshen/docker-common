@@ -5,7 +5,12 @@ entry points and SQL/gzip backup layout are retained. Build images with the
 repository root as the Docker context; `.dockerignore` limits that context to
 the required PostgreSQL source files.
 
-The first SQL comment in a new backup is
+All-database backups are `.tar.gz` bundles of plain `pg_dump --create` SQL files
+(`databases/<database>.sql`) described by `manifest.json` (format version 3).
+Before loading a file into its database, restore removes `CREATE DATABASE` and
+`\connect`, and keeps database-level settings only for databases it creates.
+
+The first SQL comment in a new single-database backup is
 `-- postgres-backup-metadata-v1: <JSON>`. It records a payload checksum, per-database
 server and extension information, the dump client version and an optional source
 image supplied by the deployment. Removing or modifying this header disables or
@@ -33,7 +38,8 @@ python3 -m unittest discover -s postgres-common/tests -v
 Run integration tests with Docker and PostgreSQL 18 client tools. These create two
 temporary PostgreSQL 18 containers and fixture extensions, test version/dependency
 failures before database creation, successful restore, preservation of target
-role attributes/passwords, legacy gzip/ZIP compatibility, and SQL error handling:
+role attributes/passwords, manual `psql` restore of a bundle SQL file, legacy
+gzip/ZIP compatibility, and SQL error handling:
 
 ```sh
 python3 postgres-common/tests/integration.py
