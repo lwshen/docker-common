@@ -12,27 +12,27 @@ $ docker run -e S3_ACCESS_KEY_ID=key -e S3_SECRET_ACCESS_KEY=secret -e S3_BUCKET
 
 ## Environment variables
 
-| Variable                      | Default   | Required | Description                                                                                                                       |
-| ----------------------------- | --------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| POSTGRES_DATABASE             |           | Y        | Database to back up, or 'all' for all connectable, valid databases (including templates)                                          |
-| POSTGRES_HOST                 |           | Y        | The PostgreSQL host                                                                                                               |
-| POSTGRES_PORT                 | 5432      |          | The PostgreSQL port                                                                                                               |
-| POSTGRES_USER                 |           | Y        | The PostgreSQL user                                                                                                               |
-| POSTGRES_PASSWORD             |           | Y        | The PostgreSQL password                                                                                                           |
-| POSTGRES_EXTRA_OPTS           | `auto`    |          | `all`: retain archive metadata. Single database: `--no-owner --no-acl --no-tablespaces`. Explicit options replace these defaults. |
-| POSTGRES_MAINTENANCE_DATABASE | postgres  |          | Existing database used to enumerate databases and export global definitions for `all`.                                            |
-| POSTGRES_DUMP_ROLE_PASSWORDS  | false     |          | Include role password hashes in `all` backups. Set to `true` only when restoring source passwords is intended.                    |
-| POSTGRES_SOURCE_IMAGE         |           |          | Optional source server image tag or digest to record in the backup metadata.                                                      |
-| S3_ACCESS_KEY_ID              |           | Y        | Your AWS access key                                                                                                               |
-| S3_SECRET_ACCESS_KEY          |           | Y        | Your AWS secret key                                                                                                               |
-| S3_BUCKET                     |           | Y        | Your AWS S3 bucket path                                                                                                           |
-| S3_PREFIX                     | backup    |          | Path prefix in your bucket                                                                                                        |
-| S3_REGION                     | us-west-1 |          | The AWS S3 bucket region                                                                                                          |
-| S3_ENDPOINT                   |           |          | The AWS Endpoint URL, for S3 Compliant APIs such as [minio](https://minio.io)                                                     |
-| S3_S3V4                       | no        |          | Set to `yes` to enable AWS Signature Version 4, required for [minio](https://minio.io) servers                                    |
-| SCHEDULE                      |           |          | Backup schedule time, see explainatons below                                                                                      |
-| ENCRYPTION_PASSWORD           |           |          | Password to encrypt the backup. Can be decrypted using `openssl aes-256-cbc -d -in backup.sql.gz.enc -out backup.sql.gz`          |
-| DELETE_OLDER_THAN             |           |          | Delete old backups, see explanation and warning below                                                                             |
+| Variable                      | Default   | Required | Description                                                                                                                |
+| ----------------------------- | --------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| POSTGRES_DATABASE             |           | Y        | Database to back up, or 'all' for all connectable, valid databases (including templates)                                   |
+| POSTGRES_HOST                 |           | Y        | The PostgreSQL host                                                                                                        |
+| POSTGRES_PORT                 | 5432      |          | The PostgreSQL port                                                                                                        |
+| POSTGRES_USER                 |           | Y        | The PostgreSQL user                                                                                                        |
+| POSTGRES_PASSWORD             |           | Y        | The PostgreSQL password                                                                                                    |
+| POSTGRES_EXTRA_OPTS           | `auto`    |          | `auto` means `--no-owner --no-acl --no-tablespaces` for single and `all` backups. Explicit options replace these defaults. |
+| POSTGRES_MAINTENANCE_DATABASE | postgres  |          | Existing database used to enumerate databases and export global definitions for `all`.                                     |
+| POSTGRES_DUMP_ROLE_PASSWORDS  | false     |          | Include role password hashes in `all` backups. Set to `true` only when restoring source passwords is intended.             |
+| POSTGRES_SOURCE_IMAGE         |           |          | Optional source server image tag or digest to record in the backup metadata.                                               |
+| S3_ACCESS_KEY_ID              |           | Y        | Your AWS access key                                                                                                        |
+| S3_SECRET_ACCESS_KEY          |           | Y        | Your AWS secret key                                                                                                        |
+| S3_BUCKET                     |           | Y        | Your AWS S3 bucket path                                                                                                    |
+| S3_PREFIX                     | backup    |          | Path prefix in your bucket                                                                                                 |
+| S3_REGION                     | us-west-1 |          | The AWS S3 bucket region                                                                                                   |
+| S3_ENDPOINT                   |           |          | The AWS Endpoint URL, for S3 Compliant APIs such as [minio](https://minio.io)                                              |
+| S3_S3V4                       | no        |          | Set to `yes` to enable AWS Signature Version 4, required for [minio](https://minio.io) servers                             |
+| SCHEDULE                      |           |          | Backup schedule time, see explainatons below                                                                               |
+| ENCRYPTION_PASSWORD           |           |          | Password to encrypt the backup. Can be decrypted using `openssl aes-256-cbc -d -in backup.sql.gz.enc -out backup.sql.gz`   |
+| DELETE_OLDER_THAN             |           |          | Delete old backups, see explanation and warning below                                                                      |
 
 ### Backup Validation and Environment Metadata
 
@@ -64,77 +64,78 @@ Build from the repository root so all three images use the same validation code:
 docker build -f postgres-backup-s3/Dockerfile -t postgres-backup-s3:local .
 ```
 
-### All-database archive bundles
+### All-database SQL bundles
 
 Keep `POSTGRES_DATABASE=all`. Each connectable, valid database (including `template1` and user templates) is exported
-separately using `pg_dump --format=custom`, then packaged as one `.tar` S3 object:
+separately as plain SQL using `pg_dump --create`, then packaged as one `.tar.gz` S3 object:
 
-- `database-000000.dump`, etc.: database schemas, data, ownership, ACLs and tablespace assignments.
+- `databases/<database>.sql`: one readable SQL file per database, named after it. It creates the database, connects to it and loads schema and data.
 - `roles.sql`: cluster role definitions/memberships; password hashes are excluded unless `POSTGRES_DUMP_ROLE_PASSWORDS=true`.
 - `tablespaces.sql`: custom tablespace definitions, for optional disaster recovery.
-- `manifest.json`: original database names mapped to numbered archives, per-file SHA-256 checksums and source environment metadata.
+- `manifest.json`: exact database names mapped to their SQL files, per-file SHA-256 checksums and source environment metadata.
 - `COMPLETE`: checksum of the finalized manifest.
+
+Letters (including non-ASCII), digits, `_`, `-` and `.` are kept in file names;
+other characters are percent-encoded (`my/db` becomes `my%2Fdb.sql`). Names
+differing only in case get a suffix (`App~2.sql`) so they can be extracted on
+case-insensitive filesystems. `manifest.json` is the authoritative mapping.
 
 The bundle is uploaded only after every export succeeds. S3 exposes the completed
 object atomically; restore rejects incomplete bundles and validates every file's
-checksum before connecting to the target. Temporary disk space must accommodate
-all archives, the tar bundle and an additional encrypted copy when enabled.
-Custom archives are already compressed. Extension binaries, configuration files
-and replication setup are not included. Database snapshots are independent; this
-is not a synchronized snapshot across databases. Avoid database/extension/role
-DDL changes during the backup.
+checksum before connecting to the target. Each SQL file is compressed into the
+bundle right after its export, so temporary disk space must accommodate the
+largest uncompressed database, the compressed bundle and an additional encrypted
+copy when enabled. Extension binaries, configuration files and replication setup
+are not included. Database snapshots are independent; this is not a synchronized
+snapshot across databases. Avoid database/extension/role DDL changes during the backup.
 
-`POSTGRES_EXTRA_OPTS=auto` retains all recovery metadata for `all`. For this mode,
-extra `pg_dump` options are forwarded to each database export. Repeated
-`--exclude-database=PATTERN` (or `--exclude-database PATTERN`) options filter the
-database list; `*` and `?` match names, and double quotes preserve literal case.
-Legacy `--no-owner --no-acl --no-tablespaces` flags remain accepted; the archive
-retains that metadata and the default restore policy omits it.
-Output file, format and compression options remain managed by the tool.
+With `POSTGRES_EXTRA_OPTS=auto`, ownership, grants and tablespace assignments are
+omitted, so restored objects belong to the restoring user. Extra `pg_dump` options
+are forwarded to each database export. Repeated `--exclude-database=PATTERN` (or
+`--exclude-database PATTERN`) options filter the database list; `*` and `?` match
+names, and double quotes preserve literal case. Output file, format and
+compression options remain managed by the tool.
 
-### Restore policies
+### Restoring bundles
 
 Use either restore image with `POSTGRES_DATABASE=postgres` (an existing maintenance
 database, never `all`). For local files, mount the bundle and set
-`BACKUP_FILE=/backup/all_TIMESTAMP.tar`; the S3 image selects the latest supported
-backup in its prefix. New databases use their original names and creation settings
-from the archives. Existing databases should be empty; the restore does not drop them.
+`BACKUP_FILE=/backup/all_TIMESTAMP.tar.gz`; the S3 image selects the latest supported
+backup in its prefix. New databases use their original names and creation settings.
+Existing databases should be empty; the restore does not drop them and keeps their
+own database-level settings. Bundles from the previous `.tar` format are rejected.
 
-| Variable               | Default  | Archive bundle behavior                                                                                                    |
+| Variable               | Default  | Bundle behavior                                                                                                            |
 | ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
 | RESTORE_DATABASE       | unset    | Restore all databases; set an exact source database name to restore only that database.                                    |
-| RESTORE_NO_OWNER       | true     | Restore objects under the restoring user instead of source owners.                                                         |
-| RESTORE_NO_ACL         | true     | Skip source access grants/revocations.                                                                                     |
-| RESTORE_NO_TABLESPACES | true     | Use target default storage instead of source tablespace assignments.                                                       |
 | RESTORE_ROLES          | false    | Skip the global role script. Enable to restore new roles and memberships.                                                  |
 | RESTORE_EXISTING_ROLES | preserve | When roles are enabled, preserve existing role definitions/passwords. `apply` permits source alterations.                  |
 | RESTORE_TABLESPACES    | false    | Skip tablespace definitions. Enable only after preparing source paths on the target; existing definitions are not skipped. |
 
-The same bundle supports a portable restore with the defaults or an ownership/ACL
-restore using `RESTORE_ROLES=true RESTORE_NO_OWNER=false RESTORE_NO_ACL=false`.
-To restore source storage assignments too, prepare tablespace paths and use
-`RESTORE_TABLESPACES=true RESTORE_NO_TABLESPACES=false`. Existing roles can also
-be provisioned separately. Named roles referenced by row security policies or other
-SQL must exist even when ownership and ACL restoration are disabled. New roles have no password unless password hashes were
-explicitly included in the backup. Global scripts apply cluster-wide even when
-`RESTORE_DATABASE` selects one database. `DROP_PUBLIC=yes` is rejected for bundles.
+Existing roles can also be provisioned separately. Named roles referenced by row
+security policies or other SQL must exist. New roles have no password unless
+password hashes were explicitly included in the backup. Global scripts apply
+cluster-wide even when `RESTORE_DATABASE` selects one database. `DROP_PUBLIC=yes`
+is rejected for bundles.
 
-To inspect a bundle manually:
+To inspect a bundle or restore one database by hand with a recent `psql`
+(PostgreSQL 18, or a 17.6/16.10-era patch release that understands `\restrict`):
 
 ```sh
-tar -xf all_TIMESTAMP.tar
+tar -xzf all_TIMESTAMP.tar.gz
 cat manifest.json
-pg_restore --list database-000000.dump
+psql -d postgres -f databases/app.sql
 ```
+
+If the database already exists, `psql` reports that `CREATE DATABASE` failed and
+continues loading into the existing database.
 
 ### Single-database and legacy SQL backups
 
 A specific `POSTGRES_DATABASE=dbname` keeps the existing `.sql.gz` format. With
 `POSTGRES_EXTRA_OPTS=auto`, it retains the previous
 `--no-owner --no-acl --no-tablespaces` defaults. Explicit options replace that list.
-SQL files already encode their restore behavior; the new archive policy switches
-do not apply to them; `RESTORE_DATABASE` is rejected for legacy SQL. Regenerate as an `all` bundle to make
-these choices at restore time. Legacy `.sql`, `.sql.gz`, `.zip` and `.sql.gz.enc`
+`RESTORE_DATABASE` is rejected for single-database and legacy SQL. Legacy `.sql`, `.sql.gz`, `.zip` and `.sql.gz.enc`
 files remain supported by the file restore image; S3 supports the gzip formats.
 Legacy all-database SQL restores still create missing roles and preserve existing
 roles by default, unlike bundles where role restoration is opt-in.
@@ -158,7 +159,7 @@ WARNING: this will delete all files in the S3_PREFIX path, not just those create
 
 ### Encryption
 
-You can additionally set the `ENCRYPTION_PASSWORD` environment variable like `-e ENCRYPTION_PASSWORD="superstrongpassword"` to encrypt the backup. Decrypt with `openssl aes-256-cbc -d -in backup.tar.enc -out backup.tar` for bundles, or use the corresponding `.sql.gz` filenames for single-database backups.
+You can additionally set the `ENCRYPTION_PASSWORD` environment variable like `-e ENCRYPTION_PASSWORD="superstrongpassword"` to encrypt the backup. Decrypt with `openssl aes-256-cbc -d -in backup.tar.gz.enc -out backup.tar.gz` for bundles, or use the corresponding `.sql.gz` filenames for single-database backups.
 
 ### Retention safety and encoding
 

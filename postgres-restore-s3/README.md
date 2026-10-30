@@ -10,41 +10,47 @@ This will potentially put your database in a very bad state or complete destroy 
 
 This is made to restore a backup made from postgres-backup-s3, if you backup came from somewhere else please check your format.
 
-- The S3 prefix must contain only backups you intend to restore. The newest `.tar`, `.tar.enc`, `.sql.gz` or `.sql.gz.enc` object is selected by modification time (with the key as a tie-breaker).
+- The S3 prefix must contain only backups you intend to restore. The newest `.tar.gz`, `.tar.gz.enc`, `.sql.gz` or `.sql.gz.enc` object is selected by modification time (with the key as a tie-breaker).
 - S3 object listing is paginated automatically by the AWS CLI.
-- Backups are archive bundles or gzip-compressed SQL, optionally encrypted with the existing OpenSSL format.
+- Backups are SQL bundles or gzip-compressed SQL, optionally encrypted with the existing OpenSSL format.
 
-## Archive bundles and restore policies
+## All-database SQL bundles
 
-New `POSTGRES_DATABASE=all` backups are `.tar` bundles containing a custom archive
-for each database, separate global scripts, checksums and a completion marker.
-All files are validated before the target is changed. Use an existing maintenance
-database such as `POSTGRES_DATABASE=postgres`. Databases restore to their original
-names; existing databases should be empty.
+New `POSTGRES_DATABASE=all` backups are `.tar.gz` bundles. Each database is a
+plain SQL file named after the database (`databases/app.sql`), next to separate
+global scripts, checksums and a completion marker. Bundles from the previous
+`.tar` format are rejected. All files are validated before the target is changed.
+Use an existing maintenance database such as `POSTGRES_DATABASE=postgres`.
+Databases restore to their original names; existing databases should be empty
+and keep their own database-level settings.
 
 | Variable               | Default  | Description                                                                                      |
 | ---------------------- | -------- | ------------------------------------------------------------------------------------------------ |
 | RESTORE_DATABASE       | unset    | Exact source database name to restore; unset restores every database.                            |
-| RESTORE_NO_OWNER       | true     | Skip source ownership.                                                                           |
-| RESTORE_NO_ACL         | true     | Skip source grants/revocations.                                                                  |
-| RESTORE_NO_TABLESPACES | true     | Skip source storage assignments.                                                                 |
 | RESTORE_ROLES          | false    | Apply the separate role script, including new roles and memberships.                             |
 | RESTORE_EXISTING_ROLES | preserve | Preserve existing role attributes/passwords; `apply` permits alterations when roles are enabled. |
 | RESTORE_TABLESPACES    | false    | Apply tablespace definitions; prepare paths first and avoid existing name conflicts.             |
 
-For example, use `RESTORE_DATABASE=app` to restore only `app`. To retain ownership
-and grants from the same backup, also use `RESTORE_ROLES=true`,
-`RESTORE_NO_OWNER=false` and `RESTORE_NO_ACL=false`. For source storage assignments,
-prepare target paths and use `RESTORE_TABLESPACES=true RESTORE_NO_TABLESPACES=false`.
-Role/tablespace scripts are cluster-wide even for a selected database. Named roles
-referenced by policies or other SQL must already exist, or enable `RESTORE_ROLES`. Password
-hashes are included only if the backup used `POSTGRES_DUMP_ROLE_PASSWORDS=true`.
-`DROP_PUBLIC=yes` is rejected for bundles. Archive restore uses
-`pg_restore --exit-on-error`; earlier changes may remain after a failure.
+For example, use `RESTORE_DATABASE=app` to restore only `app`. Bundles are dumped
+without ownership, grants or tablespace assignments, so restored objects belong
+to the restoring user. Role/tablespace scripts are cluster-wide even for a
+selected database. Named roles referenced by policies or other SQL must already
+exist, or enable `RESTORE_ROLES`. Password hashes are included only if the backup
+used `POSTGRES_DUMP_ROLE_PASSWORDS=true`. `DROP_PUBLIC=yes` is rejected for
+bundles. Each database is loaded with `psql -X -v ON_ERROR_STOP=1`; earlier
+changes may remain after a failure.
+
+To restore one database by hand instead, extract its file and run it with a
+recent `psql`:
+
+```sh
+tar -xzf all_TIMESTAMP.tar.gz databases/app.sql
+psql -d postgres -f databases/app.sql
+```
 
 These switches apply to bundles. Legacy SQL restore behavior is already encoded
 in its statements: missing roles/memberships are restored and existing roles are
-preserved by default. Archive filters do not apply to legacy SQL files; `RESTORE_DATABASE` is rejected
+preserved by default. Bundle switches do not apply to legacy SQL files; `RESTORE_DATABASE` is rejected
 for these files. See [backup formats](../postgres-backup-s3/README.md) for details.
 
 ## Restore validation
@@ -102,11 +108,13 @@ while retaining availability and dependency checks. PostgreSQL upgrades to newer
 majors are allowed; downgrades are rejected. Preload metadata unavailable to the
 connected role is reported as unknown and its preload comparison is skipped.
 
-Default bundle restores create databases using target default storage even when
-the source database used a custom tablespace. With `RESTORE_ROLES=false`,
-database-specific `ALTER ROLE ... IN DATABASE ... SET` settings are skipped too.
+Bundle restores create databases using target default storage. Database-specific
+`ALTER ROLE ... IN DATABASE ... SET` settings are applied only to databases created
+by the restore, and only with `RESTORE_ROLES=true`.
 
 Plain SQL restore needs one uncompressed temporary SQL file, plus the downloaded
 or mounted source and, if encrypted, its decrypted compressed copy. Role filtering
 compacts the temporary SQL in place; metadata collection and filtering share one
-SQL scan. Source SQL bytes are preserved without UTF-8 transcoding.
+SQL scan. Source SQL bytes are preserved without UTF-8 transcoding. Bundle
+restores extract every SQL file uncompressed before validation, so provide space
+for the whole uncompressed bundle.

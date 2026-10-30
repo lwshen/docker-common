@@ -100,7 +100,7 @@ def main():
             aws = bin_dir / "aws"
             aws.write_text('#!/bin/sh\nset -eu\n[ "$1" = s3 ] && [ "$2" = cp ]\ncp "$3" "$TEST_UPLOAD"\n')
             aws.chmod(0o755)
-            archive = work / "all.tar"
+            archive = work / "all.tar.gz"
             env = {**source, "PATH": str(bin_dir) + ":" + os.environ["PATH"], "POSTGRES_DATABASE": "all",
                    "POSTGRES_EXTRA_OPTS": "--no-owner --no-acl --no-tablespaces --exclude-database=omitted*",
                    "POSTGRES_DUMP_ROLE_PASSWORDS": "false", "S3_BUCKET": "test", "S3_PREFIX": "backup",
@@ -108,9 +108,14 @@ def main():
                    "S3_REGION": "us-west-1", "ENCRYPTION_PASSWORD": "None", "DELETE_OLDER_THAN": "None",
                    "TEST_UPLOAD": str(archive)}
             run(["sh", str(ROOT / "postgres-backup-s3/backup.sh")], env=env)
-            with tarfile.open(archive) as data:
+            with tarfile.open(archive, "r:gz") as data:
                 metadata = json.load(data.extractfile("manifest.json"))
                 roles = data.extractfile("roles.sql").read().decode()
+                app_sql = data.extractfile("databases/app.sql").read().decode()
+                members = data.getnames()
+            assert metadata["databases"]["app"]["file"] == "databases/app.sql"
+            assert "databases/back%5Cslash%22quote.sql" in members and "databases/odd%20%3D%20%27db.sql" in members, members
+            assert "CREATE DATABASE app" in app_sql and "OWNER TO" not in app_sql and "GRANT " not in app_sql
             assert metadata["databases"]["app"]["extensions"]
             assert "PASSWORD " not in roles
             assert "postgres" in metadata["databases"]
@@ -154,23 +159,33 @@ def main():
             assert sql(target, "SELECT datistemplate FROM pg_database WHERE datname='user_template'") == "t"
             assert sql(target, "SELECT t.spcname FROM pg_database d JOIN pg_tablespace t ON t.oid=d.dattablespace WHERE d.datname='placed_probe'") == "pg_default"
             print("PASS: SQL_ASCII bytes, template databases, unusual names and portable database tablespaces", flush=True)
-            # The same backup retains enough information for a faithful restore.
-            encrypted = work / "all.tar.enc"
+            # Roles can be restored with a selected database; objects still belong to the restoring user.
+            encrypted = work / "all.tar.gz.enc"
             run(["sh", str(ROOT / "postgres-backup-s3/backup.sh")],
                 env={**env, "TEST_UPLOAD": str(encrypted), "ENCRYPTION_PASSWORD": "test-encryption",
                      "POSTGRES_DUMP_ROLE_PASSWORDS": "true"})
             sql(target, "DROP DATABASE app")
-            faithful = {**target, "RESTORE_DATABASE": "app", "RESTORE_ROLES": "true",
-                        "RESTORE_NO_OWNER": "false", "RESTORE_NO_ACL": "false",
+            selected = {**target, "RESTORE_DATABASE": "app", "RESTORE_ROLES": "true",
                         "BACKUP_FILE": str(encrypted), "ENCRYPTION_PASSWORD": "test-encryption"}
-            run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=faithful)
-            assert sql(target, "SELECT tableowner FROM pg_tables WHERE tablename = 'items'", "app") == "app_owner"
-            assert sql(target, "SELECT has_table_privilege('app_reader','items','SELECT')", "app") == "t"
+            run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=selected)
+            assert sql(target, "SELECT count(*) FROM pg_roles WHERE rolname IN ('app_owner','app_reader')") == "2"
+            assert sql(target, "SELECT tableowner FROM pg_tables WHERE tablename = 'items'", "app") == "postgres"
             assert sql(target, "SELECT rolconnlimit FROM pg_roles WHERE rolname = 'postgres'") == "-1"
             assert sql(target, "SELECT count(*) FROM items", "app") == "3"
-            assert sql(target, "SELECT has_database_privilege('app_reader','app','CONNECT')") == "t"
-            assert sql(target, "SELECT has_database_privilege('app_owner','app','CONNECT')") == "f"
-            print("PASS: encrypted selected-database restore applies ownership/ACLs and preserves existing passwords", flush=True)
+            assert sql(target, "SELECT count(*) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase "
+                               "JOIN pg_roles r ON r.oid = s.setrole WHERE d.datname = 'app' AND r.rolname = 'app_reader'") == "1"
+            print("PASS: encrypted selected-database restore adds roles and preserves existing passwords", flush=True)
+
+            # A database file from the bundle can also be restored by hand with psql.
+            sql(target, "DROP DATABASE app")
+            manual = work / "manual"
+            with tarfile.open(archive, "r:gz") as data:
+                data.extract("databases/app.sql", manual, filter="data")
+            run(["psql", "-X", "-v", "ON_ERROR_STOP=1", "-h", target["POSTGRES_HOST"], "-p", target["POSTGRES_PORT"],
+                 "-U", "postgres", "-d", "postgres", "-f", str(manual / "databases/app.sql")], env=target)
+            assert sql(target, "SELECT count(*) FROM items", "app") == "3"
+            assert sql(target, "SELECT tableowner FROM pg_tables WHERE tablename = 'items'", "app") == "postgres"
+            print("PASS: bundle SQL file restores manually with psql", flush=True)
 
             # Restore old gzip/zip files into fresh empty databases as well.
             sql(source, "CREATE DATABASE plain_source TEMPLATE template0")

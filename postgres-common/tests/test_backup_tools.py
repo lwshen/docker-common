@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import tarfile
@@ -200,7 +201,9 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
     def test_cleanup_only_owns_matching_database_backup_keys(self):
         s3 = object.__new__(tools.S3)
         s3.prefix = "backup"
-        self.assertTrue(s3.owns_backup("backup/20261029/app_2026-10-29_010203.sql.gz.enc", "app"))
+        for key in ["backup/20261029/app_2026-10-29_010203.sql.gz.enc", "backup/20261029/app_2026-10-29_010203_123456.tar.gz",
+                    "backup/20261029/app_2026-10-29_010203_123456.tar.gz.enc", "backup/20261029/app_2026-10-29_010203_123456.tar"]:
+            self.assertTrue(s3.owns_backup(key, "app"))
         for key in ["elsewhere/20261029/app_2026-10-29_010203.sql.gz", "backup/notes.sql.gz",
                     "backup/20261029/other_2026-10-29_010203.sql.gz", "backup/20261029/app_2026-10-29_010203.sql.gz.tmp"]:
             self.assertFalse(s3.owns_backup(key, "app"))
@@ -226,25 +229,66 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
         self.assertFalse(tools.database_pattern('"Mixed"', 'mixed'))
 
 
+APP_SQL = """\\restrict key
+SET client_encoding = 'UTF8';
+CREATE DATABASE app WITH TEMPLATE = template0 ENCODING = 'UTF8';
+\\unrestrict key
+\\connect app
+\\restrict key
+SET client_encoding = 'UTF8';
+ALTER DATABASE app SET search_path TO public;
+ALTER ROLE reader IN DATABASE app SET work_mem TO '8MB';
+CREATE EXTENSION example;
+CREATE FUNCTION f() RETURNS text AS $$ALTER DATABASE app SET x TO 1;$$ LANGUAGE sql;
+COPY items (id) FROM stdin;
+1
+\\.
+\\unrestrict key
+"""
+
+
+class BundleNameTests(unittest.TestCase):
+    def test_names_stay_readable(self):
+        used = set()
+        self.assertEqual(tools.bundle_name("app", used), "databases/app.sql")
+        self.assertEqual(tools.bundle_name("订单库", used), "databases/订单库.sql")
+        self.assertEqual(tools.bundle_name("my.db-2_x", used), "databases/my.db-2_x.sql")
+
+    def test_unsafe_characters_are_percent_encoded(self):
+        used = set()
+        self.assertEqual(tools.bundle_name("a/b c%~", used), "databases/a%2Fb%20c%25%7E.sql")
+        self.assertEqual(tools.bundle_name("..", used), "databases/%2E..sql")
+
+    def test_case_only_collisions_get_a_suffix(self):
+        used = set()
+        tools.bundle_name("app", used)
+        self.assertEqual(tools.bundle_name("App", used), "databases/App~2.sql")
+        self.assertEqual(tools.bundle_name("APP", used), "databases/APP~3.sql")
+
+
 class BundleTests(TempCase):
-    def bundle(self, corrupt=False, complete=True):
-        files = {}
-        for name, text in {"database-000000.dump": "custom archive", "roles.sql": "CREATE ROLE business;\n",
-                           "tablespaces.sql": "-- no custom tablespaces\n"}.items():
-            files[name] = self.write(text, name)
-        manifest = {"format_version": 2, "database": "all", "databases": {"app": {
-            "file": "database-000000.dump", "sha256": tools.file_hash(files["database-000000.dump"])}},
-            "roles": {"file": "roles.sql", "sha256": tools.file_hash(files["roles.sql"])},
-            "tablespaces": {"file": "tablespaces.sql", "sha256": tools.file_hash(files["tablespaces.sql"])}}
-        files["manifest.json"] = self.write(json.dumps(manifest), "manifest.json")
+    def bundle(self, corrupt=False, complete=True, sql=APP_SQL):
+        source = self.work / "source"
+        (source / "databases").mkdir(parents=True, exist_ok=True)
+        files = {"databases/app.sql": sql, "roles.sql": "CREATE ROLE business;\n",
+                 "tablespaces.sql": "-- no custom tablespaces\n"}
+        for name, text in files.items():
+            (source / name).write_text(text)
+        manifest = {"format_version": 3, "database": "all", "databases": {"app": {
+            "file": "databases/app.sql", "sha256": tools.file_hash(source / "databases/app.sql")}},
+            "roles": {"file": "roles.sql", "sha256": tools.file_hash(source / "roles.sql")},
+            "tablespaces": {"file": "tablespaces.sql", "sha256": tools.file_hash(source / "tablespaces.sql")}}
+        (source / "manifest.json").write_text(json.dumps(manifest))
+        names = [*files, "manifest.json"]
         if complete:
-            files["COMPLETE"] = self.write(tools.file_hash(files["manifest.json"]), "COMPLETE")
+            (source / "COMPLETE").write_text(tools.file_hash(source / "manifest.json"))
+            names.append("COMPLETE")
         if corrupt:
-            files["database-000000.dump"].write_text("damaged")
-        archive = self.work / "all.tar"
-        with tarfile.open(archive, "w") as output:
-            for name, file in files.items():
-                output.add(file, arcname=name)
+            (source / "databases/app.sql").write_text("damaged")
+        archive = self.work / "all.tar.gz"
+        with tarfile.open(archive, "w:gz") as output:
+            for name in names:
+                output.add(source / name, arcname=name)
         return archive
 
     def test_corrupt_or_incomplete_bundle_never_connects(self):
@@ -256,50 +300,73 @@ class BundleTests(TempCase):
                 pg.assert_not_called()
 
     def test_archive_path_traversal_is_rejected(self):
-        archive = self.work / "all.tar"
-        with tarfile.open(archive, "w") as output:
-            output.add(self.write("bad"), arcname="../outside.sql")
-        with self.assertRaisesRegex(ValueError, "Invalid"):
-            tools.read_bundle(archive, self.work)
-        self.assertFalse((self.work.parent / "outside.sql").exists())
+        for name in ["../outside.sql", "databases/../outside.sql", "databases/.hidden.sql"]:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
+                archive = self.work / "all.tar.gz"
+                with tarfile.open(archive, "w:gz") as output:
+                    output.add(self.write("bad"), arcname=name)
+                with self.assertRaisesRegex(ValueError, "Invalid"):
+                    tools.read_bundle(archive, Path(temp))
+                self.assertFalse((Path(temp).parent / "outside.sql").exists())
 
-    def restore_policy(self, faithful):
+    def restore_bundle(self, existing, restore_roles):
         archive = self.bundle()
-        if faithful:
-            os.environ.update(RESTORE_ROLES="true", RESTORE_NO_OWNER="false", RESTORE_NO_ACL="false",
-                              RESTORE_NO_TABLESPACES="false", RESTORE_DATABASE="app")
+        os.environ["RESTORE_ROLES"] = "true" if restore_roles else "false"
         pg = mock.Mock(database="postgres", args=["-h", "localhost"])
-        pg.query.return_value = ["postgres"]
-        pg.psql.return_value = ["psql"]
+        pg.query.return_value = ["postgres", "app"] if existing else ["postgres"]
+        pg.psql.side_effect = lambda database: ["psql", database]
         calls = []
 
         def command(args, **kwargs):
-            calls.append(args)
-            if "--schema-only" in args:
-                Path(args[args.index("--file") + 1]).write_text("CREATE DATABASE app WITH TEMPLATE = template0 TABLESPACE = source_space;\nCREATE EXTENSION example;\nALTER ROLE missing IN DATABASE app SET search_path TO public;\n")
+            # Snapshot scripts when psql runs them; prepared files may be reused.
+            script = Path(args[args.index("-f") + 1]).read_text() if "-f" in args else None
+            calls.append((args, script))
 
         with mock.patch.object(tools, "Postgres", return_value=pg), \
                 mock.patch.object(tools, "preflight", return_value=({"postgres"}, True)) as check, \
                 mock.patch.object(tools, "command", side_effect=command):
             tools.restore_bundle(archive, self.work)
         self.assertEqual(check.call_args.args[3], {"app": ["example"]})
-        restores = [args for args in calls if "--exit-on-error" in args]
-        self.assertEqual(len(restores), 1)
-        for option in ["--no-owner", "--no-acl", "--no-tablespaces"]:
-            self.assertEqual(option in restores[0], not faithful)
-        self.assertNotIn("--create", restores[0])
-        creation = next(args[-1] for args in calls if "-c" in args)
-        self.assertEqual("TABLESPACE" in creation, faithful)
-        role_calls = [args for args in calls if args[0] != "pg_restore"]
-        self.assertEqual(len(role_calls), 3 if faithful else 2)
-        props = (self.work / "database-properties-prepared.sql").read_text()
-        self.assertEqual("ALTER ROLE missing" in props, faithful)
+        creations = [args[-1] for args, _ in calls if "-c" in args]
+        roles = [script for args, script in calls if args[1] == "postgres" and script and "business" in script]
+        bodies = [script for args, script in calls if args[1] == "app" and "-f" in args]
+        self.assertEqual(len(bodies), 1)
+        return creations, roles, bodies[0]
 
-    def test_default_policy_does_not_restore_roles_or_source_placement(self):
-        self.restore_policy(False)
+    def test_new_database_is_created_then_loaded_without_reconnecting(self):
+        creations, roles, body = self.restore_bundle(existing=False, restore_roles=False)
+        self.assertEqual(creations, ["CREATE DATABASE app WITH TEMPLATE = template0 ENCODING = 'UTF8';"])
+        self.assertEqual(roles, [])
+        self.assertNotIn("CREATE DATABASE", body)
+        self.assertNotIn("\\connect", body)
+        self.assertIn("ALTER DATABASE app SET search_path", body)
+        self.assertNotIn("ALTER ROLE reader", body)
+        self.assertIn("$$ALTER DATABASE app SET x TO 1;$$", body)
+        self.assertIn("COPY items (id) FROM stdin;\n1\n\\.\n", body)
+        self.assertIn("\\restrict key", body)
 
-    def test_faithful_policy_uses_same_backup(self):
-        self.restore_policy(True)
+    def test_role_settings_follow_restored_roles(self):
+        creations, roles, body = self.restore_bundle(existing=False, restore_roles=True)
+        self.assertEqual(len(creations), 1)
+        self.assertEqual(len(roles), 1)
+        self.assertIn("ALTER ROLE reader IN DATABASE app", body)
+
+    def test_existing_database_keeps_its_own_settings(self):
+        creations, roles, body = self.restore_bundle(existing=True, restore_roles=True)
+        self.assertEqual(creations, [])
+        self.assertEqual(len(roles), 1)
+        self.assertNotIn("ALTER DATABASE app SET search_path", body)
+        self.assertNotIn("ALTER ROLE reader", body)
+        self.assertIn("CREATE EXTENSION example;", body)
+
+    def test_connection_to_another_database_is_rejected(self):
+        archive = self.bundle(sql=APP_SQL.replace("\\connect app", "\\connect other"))
+        pg = mock.Mock(database="postgres", args=[])
+        pg.query.return_value = ["postgres"]
+        with mock.patch.object(tools, "Postgres", return_value=pg), mock.patch.object(tools, "command") as command, \
+                self.assertRaisesRegex(ValueError, "connection"):
+            tools.restore_bundle(archive, self.work)
+        command.assert_not_called()
 
     def test_unknown_database_never_connects(self):
         os.environ["RESTORE_DATABASE"] = "unknown"
@@ -307,16 +374,65 @@ class BundleTests(TempCase):
             tools.restore_bundle(self.bundle(), self.work)
         command.assert_not_called()
 
-    def test_s3_selects_latest_bundle_and_retains_encrypted_suffix(self):
+    def test_previous_tar_bundles_are_rejected_before_connecting(self):
+        for name in ("all.tar", "all.tar.enc"):
+            with self.subTest(name=name), mock.patch.object(tools, "Postgres") as pg, \
+                    self.assertRaisesRegex(ValueError, "no longer supported"):
+                tools.restore(self.write("old", name), self.work)
+            pg.assert_not_called()
+
+    def test_s3_selects_latest_sql_bundle_and_retains_encrypted_suffix(self):
         s3 = mock.Mock(args=["aws"], prefix="backup")
         s3.objects.return_value = [
             {"Key": "backup/old.sql.gz", "LastModified": "2026-10-28T00:00:00Z"},
-            {"Key": "backup/new.tar.enc", "LastModified": "2026-10-29T00:00:00Z"},
+            {"Key": "backup/new.tar.gz.enc", "LastModified": "2026-10-29T00:00:00Z"},
+            {"Key": "backup/previous-format.tar", "LastModified": "2026-10-30T00:00:00Z"},
             {"Key": "backup/incomplete.tmp", "LastModified": "2026-10-30T00:00:00Z"}]
         with mock.patch.object(tools, "S3", return_value=s3), mock.patch.object(tools, "command"), \
                 mock.patch.object(tools, "restore") as restore:
             tools.restore_s3()
-        self.assertEqual(restore.call_args.args[0].name, "new.tar.enc")
+        self.assertEqual(restore.call_args.args[0].name, "new.tar.gz.enc")
+
+    def test_all_database_backup_uploads_readable_sql_bundle(self):
+        os.environ.update(POSTGRES_DATABASE="all", POSTGRES_EXTRA_OPTS="auto")
+        pg = mock.Mock(database="all", args=[])
+        pg.query.return_value = ["app", "a/b"]
+        s3 = mock.Mock(args=["aws"], prefix="backup")
+        s3.uri.side_effect = lambda key: key
+        uploaded = self.work / "uploaded"
+        calls = []
+
+        def command(args, **kwargs):
+            calls.append(args)
+            if "--version" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="pg_dump 18")
+            if args[0] == "pg_dump":
+                Path(args[args.index("--file") + 1]).write_text("CREATE DATABASE x;\n-- " + args[-1] + "\n")
+            elif args[0] == "pg_dumpall":
+                kwargs["stdout"].write(b"-- globals\n")
+            elif args[0] == "aws":
+                shutil.copy(args[3], uploaded)
+            return subprocess.CompletedProcess(args, 0)
+
+        with mock.patch.object(tools, "Postgres", return_value=pg), mock.patch.object(tools, "S3", return_value=s3), \
+                mock.patch.object(tools, "describe_database", return_value={}), \
+                mock.patch.object(tools, "command", side_effect=command):
+            tools.backup()
+        key = next(args[4] for args in calls if args[0] == "aws")
+        self.assertRegex(key, r"^backup/[0-9]{8}/all_.*\.tar\.gz$")
+        with tarfile.open(uploaded, "r:gz") as archive:
+            self.assertEqual(sorted(archive.getnames()), sorted([
+                "databases/app.sql", "databases/a%2Fb.sql", "roles.sql", "tablespaces.sql", "manifest.json", "COMPLETE"]))
+            manifest = json.load(archive.extractfile("manifest.json"))
+            self.assertTrue(archive.extractfile("databases/app.sql").read().startswith(b"CREATE DATABASE"))
+        self.assertEqual(manifest["format_version"], 3)
+        self.assertEqual(manifest["databases"]["a/b"]["file"], "databases/a%2Fb.sql")
+        dumps = [args for args in calls if args[0] == "pg_dump" and "--version" not in args]
+        self.assertEqual(len(dumps), 2)
+        for args in dumps:
+            for option in ["--create", "--no-owner", "--no-acl", "--no-tablespaces"]:
+                self.assertIn(option, args)
+            self.assertFalse(any(arg.startswith("--format") for arg in args))
 
     def test_legacy_sql_selection_is_rejected_before_connecting(self):
         os.environ["RESTORE_DATABASE"] = "app"

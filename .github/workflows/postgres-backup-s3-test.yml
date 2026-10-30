@@ -75,7 +75,7 @@ jobs:
         run: |
           docker build -t postgres-backup-s3:test -f postgres-backup-s3/Dockerfile .
 
-      - name: Test per-database archive bundles and restore policies
+      - name: Test per-database SQL bundles and restore policies
         run: |
           set -euo pipefail
           docker exec -u postgres ${{ job.services.postgres.id }} mkdir /tmp/backup-source-tablespace
@@ -112,19 +112,20 @@ jobs:
               postgres-backup-s3:test
             ./mc cp -r "myminio/test-bucket/backup-all-$mode/" "./backup-all-$mode/"
             mkdir "all-$mode"
-            tar -xf ./backup-all-$mode/*/*.tar -C "all-$mode"
+            tar -xzf ./backup-all-$mode/*/*.tar.gz -C "all-$mode"
           done
           if grep -Eq '^ALTER ROLE .* PASSWORD ' all-default/roles.sql; then
             echo 'Default all-database backup unexpectedly includes role passwords'
             exit 1
           fi
           grep -Eq '^ALTER ROLE .* PASSWORD ' all-include/roles.sql
-          extra_archive=$(python3 -c 'import json; print(json.load(open("all-default/manifest.json"))["databases"]["backup_extra"]["file"])')
-          docker run --rm -v "$PWD/all-default:/backup:ro" --entrypoint pg_restore \
-            postgres-backup-s3:test --schema-only --file /dev/stdout "/backup/$extra_archive" > all-schema.sql
-          grep -q 'OWNER TO backup_login' all-schema.sql
-          grep -q 'GRANT SELECT' all-schema.sql
-          grep -q 'backup_source_space' all-schema.sql
+          # Each database is a readable SQL file named after the database.
+          grep -q 'CREATE DATABASE backup_extra' all-default/databases/backup_extra.sql
+          grep -q 'second database restored' all-default/databases/backup_extra.sql
+          if grep -Eq 'OWNER TO|GRANT SELECT|backup_source_space' all-default/databases/backup_extra.sql; then
+            echo 'SQL bundle unexpectedly includes ownership, grants or tablespace assignments'
+            exit 1
+          fi
           grep -q 'CREATE TABLESPACE backup_source_space' all-default/tablespaces.sql
           docker build -t postgres-restore-s3:bundle-test -f postgres-restore-s3/Dockerfile .
           docker build -t postgres-restore-file:bundle-test -f postgres-restore-file/Dockerfile .
@@ -161,22 +162,31 @@ jobs:
             psql -XAt -h 127.0.0.1 -U postgres -d postgres \
             -c "SELECT count(*) FROM pg_roles WHERE rolname = 'backup_new_login'")" = 0
 
-          # The same bundle can retain owners and grants, without restoring source storage paths.
+          # A selected database can bring roles along; objects still belong to the restoring user.
           docker exec -e PGPASSWORD=target-admin-password all-restore-target \
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -c 'DROP DATABASE backup_extra'
-          backup_files=("$PWD"/backup-all-default/*/*.tar)
+          backup_files=("$PWD"/backup-all-default/*/*.tar.gz)
           docker run --rm --network=container:all-restore-target \
-            -v "${backup_files[0]}:/backup/all.tar:ro" -e BACKUP_FILE=/backup/all.tar \
+            -v "${backup_files[0]}:/backup/all.tar.gz:ro" -e BACKUP_FILE=/backup/all.tar.gz \
             -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DATABASE=postgres \
             -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=target-admin-password \
-            -e RESTORE_DATABASE=backup_extra -e RESTORE_ROLES=true \
-            -e RESTORE_NO_OWNER=false -e RESTORE_NO_ACL=false postgres-restore-file:bundle-test
+            -e RESTORE_DATABASE=backup_extra -e RESTORE_ROLES=true postgres-restore-file:bundle-test
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
             psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
-            -c "SELECT tableowner FROM pg_tables WHERE tablename = 'extra_data'")" = backup_login
+            -c "SELECT tableowner FROM pg_tables WHERE tablename = 'extra_data'")" = postgres
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
-            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
-            -c "SELECT has_table_privilege('backup_new_login','extra_data','SELECT')")" = t
+            psql -XAt -h 127.0.0.1 -U postgres -d postgres \
+            -c "SELECT count(*) FROM pg_roles WHERE rolname = 'backup_new_login'")" = 1
+          test "$(docker exec -e PGPASSWORD=target-login-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U backup_login -d postgres -c 'SELECT current_user')" = backup_login
+
+          # The same SQL file can be restored by hand with psql.
+          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -c 'DROP DATABASE backup_extra'
+          docker exec -i -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres < all-default/databases/backup_extra.sql
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra -c 'SELECT value FROM extra_data')" = 'second database restored'
 
       - name: Run backup
         run: |
