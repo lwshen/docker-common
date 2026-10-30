@@ -77,7 +77,7 @@ for these files. See [backup formats](../postgres-backup-s3/README.md) for detai
 New backups contain embedded PostgreSQL/extension metadata and an SQL payload
 checksum. Validation runs before restore SQL or `DROP_PUBLIC`: it checks integrity,
 the server major version, extension availability/versions/dependency order and
-recorded extension preloads. Prepare matching server and extension packages first.
+recorded extension preloads. Use the same or a newer server major and matching extension packages.
 For old SQL/gzip/ZIP files, source extension versions and payload checksums are
 unavailable; declared extension dependencies and compressed-file integrity are
 still checked. The checks do not install or enable extensions automatically.
@@ -96,3 +96,18 @@ Build from the repository root to include the shared validation helper:
 ```sh
 docker build -f postgres-restore-file/Dockerfile -t postgres-restore-file:local .
 ```
+
+`RESTORE_ALLOW_EXTENSION_VERSION_MISMATCH=false` is the default. Set it to `true`
+for an explicitly reviewed extension migration; it permits version differences
+while retaining availability and dependency checks. PostgreSQL upgrades to newer
+majors are allowed; downgrades are rejected. Preload metadata unavailable to the
+connected role is reported as unknown and its preload comparison is skipped.
+
+Default bundle restores create databases using target default storage even when
+the source database used a custom tablespace. With `RESTORE_ROLES=false`,
+database-specific `ALTER ROLE ... IN DATABASE ... SET` settings are skipped too.
+
+Plain SQL restore needs one uncompressed temporary SQL file, plus the downloaded
+or mounted source and, if encrypted, its decrypted compressed copy. Role filtering
+compacts the temporary SQL in place; metadata collection and filtering share one
+SQL scan. Source SQL bytes are preserved without UTF-8 transcoding.

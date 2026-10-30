@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SQL/archive backups and checked restores shared by the PostgreSQL images."""
 
+import contextlib
 import datetime as dt
 import gzip
 import hashlib
@@ -50,10 +51,12 @@ class Postgres:
         host = os.environ.get("POSTGRES_HOST", "None")
         if host in ("None", "**None**", ""):
             host = setting("POSTGRES_PORT_5432_TCP_ADDR")
-        self.args = ["-h", host, "-p", os.environ.get("POSTGRES_PORT", "5432"),
+        port = os.environ.get("POSTGRES_PORT", "5432")
+        if port.startswith("tcp://"):
+            port = setting("POSTGRES_PORT_5432_TCP_PORT", "5432")
+        self.args = ["-h", host, "-p", port,
                      "-U", setting("POSTGRES_USER")]
         os.environ["PGPASSWORD"] = setting("POSTGRES_PASSWORD")
-        os.environ["PGCLIENTENCODING"] = "UTF8"
         self.database = setting("POSTGRES_DATABASE")
 
     def psql(self, database):
@@ -80,7 +83,8 @@ def sql_chunks(path):
     escape_string = False
     block = 0
     copy = False
-    with open(path, encoding="utf-8", newline="") as source:
+    has_content = False
+    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as source:
         for line in source:
             if copy:
                 yield "data", line
@@ -105,6 +109,9 @@ def sql_chunks(path):
                         buffer.append("*/")
                         block -= 1
                         i += 2
+                        if not block and not has_content:
+                            yield "comment", "".join(buffer)
+                            buffer = []
                     else:
                         buffer.append(char)
                         i += 1
@@ -124,6 +131,10 @@ def sql_chunks(path):
                         buffer.append(char)
                         i += 1
                 elif line.startswith("--", i):
+                    if not has_content:
+                        yield "comment", "".join(buffer) + line[i:]
+                        buffer = []
+                        break
                     buffer.append(line[i:])
                     break
                 elif line.startswith("/*", i):
@@ -131,11 +142,14 @@ def sql_chunks(path):
                     block = 1
                     i += 2
                 elif char in ("'", '"'):
-                    escape_string = char == "'" and bool(re.search(r"(?i)(?<![\w$])E$", "".join(buffer)))
+                    has_content = True
+                    escape_string = char == "'" and bool(buffer and buffer[-1] in ("E", "e") and
+                        (len(buffer) < 2 or not re.match(r"[\w$]", buffer[-2][-1:])))
                     quote = char
                     buffer.append(char)
                     i += 1
-                elif char == "$" and (tag := re.match(r"\$(?:[A-Za-z_]\w*)?\$", line[i:])):
+                elif char == "$" and (i == 0 or not re.match(r"[\w$]", line[i - 1])) and (tag := re.match(r"\$(?:[A-Za-z_]\w*)?\$", line[i:])):
+                    has_content = True
                     quote = tag.group()
                     buffer.append(quote)
                     i += len(quote)
@@ -144,12 +158,14 @@ def sql_chunks(path):
                     statement = "".join(buffer)
                     yield "sql", statement
                     buffer = []
+                    has_content = False
                     copy = bool(re.match(r"\s*COPY\b.*\bFROM stdin;\s*$", statement, re.S | re.I))
                     i += 1
                 else:
+                    has_content = has_content or not char.isspace()
                     buffer.append(char)
                     i += 1
-            if buffer and not "".join(buffer).strip():
+            if buffer and not has_content and not block:
                 yield "comment", "".join(buffer)
                 buffer = []
         if buffer:
@@ -157,11 +173,15 @@ def sql_chunks(path):
 
 
 def connection_database(line):
-    parts = shlex.split(line.strip()[1:])
-    args = [part for part in parts[1:] if not part.startswith("-reuse-previous=")]
-    if len(args) != 1:
-        raise ValueError("Unsupported dump connection command; inspect the SQL before restoring.")
-    value = args[0]
+    # psql meta-command quoting is not shell quoting. pg_dump emits either
+    # a double-quoted SQL identifier or a double-quoted libpq connection string.
+    value = re.sub(r"^\\(?:connect|c)\s+(?:-reuse-previous=\w+\s+)?", "", line.strip())
+    if value.startswith('"'):
+        if not value.endswith('"'):
+            raise ValueError("Unterminated dump connection command.")
+        value = value[1:-1].replace('""', '"')
+    elif any(char.isspace() for char in value):
+        raise ValueError("Unsupported dump connection command.")
     if value.startswith("dbname="):
         match = re.fullmatch(r"dbname='((?:\\.|[^'])*)'", value)
         if not match:
@@ -192,15 +212,18 @@ def file_hash(path):
 
 
 def describe_database(pg, database):
-    return pg.query(database, """
+    info = pg.query(database, """
         SELECT json_build_object(
           'server_version_num', current_setting('server_version_num')::int,
-          'shared_preload_libraries', current_setting('shared_preload_libraries'),
+          'shared_preload_libraries', (SELECT setting FROM pg_settings WHERE name = 'shared_preload_libraries'),
           'extensions', COALESCE((SELECT json_agg(json_build_object(
             'name', e.extname, 'version', e.extversion, 'schema', n.nspname)
             ORDER BY e.extname) FROM pg_extension e
             JOIN pg_namespace n ON n.oid = e.extnamespace), '[]'::json))
     """)
+    if info["shared_preload_libraries"] is None:
+        print(f"{database}: shared_preload_libraries is unavailable to this role; preload validation is limited.", file=sys.stderr)
+    return info
 
 
 class S3:
@@ -215,6 +238,13 @@ class S3:
         if endpoint not in ("None", "**None**", ""):
             self.args += ["--endpoint-url", endpoint]
 
+    def owns_backup(self, key, database):
+        if not self.prefix:
+            return False
+        pattern = (re.escape(self.prefix) + r"/[0-9]{8}/" + re.escape(database) +
+                   r"_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}(?:_[0-9]{6})?\.(?:sql\.gz|tar)(?:\.enc)?")
+        return re.fullmatch(pattern, key) is not None
+
     def objects(self):
         result = command([*self.args, "s3api", "list-objects-v2", "--bucket", self.bucket,
                           "--prefix", self.prefix + "/" if self.prefix else "", "--output", "json"],
@@ -228,6 +258,9 @@ class S3:
 def backup():
     pg = Postgres()
     s3 = S3()
+    older_than = os.environ.get("DELETE_OLDER_THAN", "None")
+    if older_than not in ("None", "**None**", "") and not s3.prefix:
+        raise ValueError("DELETE_OLDER_THAN requires a non-empty S3_PREFIX.")
     all_databases = pg.database == "all"
     options = os.environ.get("POSTGRES_EXTRA_OPTS", "auto")
     extra = shlex.split(("" if all_databases else "--no-owner --no-acl --no-tablespaces") if options == "auto" else options)
@@ -239,7 +272,7 @@ def backup():
             raise ValueError("POSTGRES_EXTRA_OPTS cannot change the managed SQL output file, format or compression.")
     if all_databases:
         enabled("POSTGRES_DUMP_ROLE_PASSWORDS")
-    args = ["pg_dump", *pg.args, *extra, "--encoding=UTF8", "--dbname", conninfo(pg.database)]
+    args = ["pg_dump", *pg.args, *extra, "--dbname", conninfo(pg.database)]
     with tempfile.TemporaryDirectory(prefix="postgres-backup-") as directory:
         work = Path(directory)
         if all_databases:
@@ -263,6 +296,8 @@ def backup():
             result = command(["date", "-d", older_than, "+%s"], stdout=subprocess.PIPE, text=True)
             cutoff = int(result.stdout)
             for obj in s3.objects():
+                if not s3.owns_backup(obj["Key"], pg.database):
+                    continue
                 created = dt.datetime.fromisoformat(obj["LastModified"].replace("Z", "+00:00"))
                 if created.timestamp() < cutoff:
                     command([*s3.args, "s3", "rm", s3.uri(obj["Key"])])
@@ -276,10 +311,7 @@ def backup_sql(pg, work, args):
         command(args, stdout=output)
     if raw.stat().st_size == 0:
         raise ValueError("The dump was empty; no backup was uploaded.")
-    databases = {}
-    for name in plan(raw):
-        database = name or pg.database
-        databases[database] = describe_database(pg, database)
+    databases = {pg.database: describe_database(pg, pg.database)}
     metadata = {"format_version": 1, "database": pg.database, "databases": databases,
                 "dump_client": command([args[0], "--version"], stdout=subprocess.PIPE,
                                        text=True).stdout.strip(),
@@ -296,19 +328,66 @@ def conninfo(database):
     return "dbname='" + database.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
+def database_pattern(pattern, name):
+    """Match pg_dumpall database patterns: quoted literals, *, ? and regex."""
+    parts = []
+    quoted = False
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if char == '"':
+            if quoted and i + 1 < len(pattern) and pattern[i + 1] == '"':
+                parts.append(re.escape('"'))
+                i += 2
+                continue
+            quoted = not quoted
+        elif quoted:
+            parts.append(re.escape(char))
+        elif char == '*':
+            parts.append('.*')
+        elif char == '?':
+            parts.append('.')
+        else:
+            parts.append(char.lower())
+        i += 1
+    if quoted:
+        raise ValueError("Unterminated quoted database pattern.")
+    try:
+        return re.fullmatch(''.join(parts), name) is not None
+    except re.error as error:
+        raise ValueError("Invalid database exclusion pattern.") from error
+
+
 def backup_bundle(pg, work, extra):
-    # Keep recovery policy out of the archive. Destructive/partial export options
-    # would make the manifest misleading, so bundle exports accept only these.
-    allowed = {"--verbose", "-v", "--blobs", "-b", "--large-objects"}
-    if any(option not in allowed for option in extra):
-        raise ValueError("All-database archives retain ownership, ACLs and tablespace assignments. "
-                         "POSTGRES_EXTRA_OPTS supports only --verbose/--blobs/--large-objects for all; "
-                         "use RESTORE_NO_OWNER, RESTORE_NO_ACL and RESTORE_NO_TABLESPACES when restoring.")
+    dump_role_passwords = enabled("POSTGRES_DUMP_ROLE_PASSWORDS") and "--no-role-passwords" not in extra
+    # Compatibility flags affect restore policy, not retained archive metadata.
+    ignored = {"--no-owner", "-O", "--no-acl", "--no-privileges", "-x", "--no-tablespaces"}
+    dump_extra = []
+    excludes = []
+    iterator = iter(extra)
+    for option in iterator:
+        if option == "--exclude-database":
+            value = next(iterator, None)
+            if value is None:
+                raise ValueError("--exclude-database requires a pattern.")
+            excludes.append(value)
+        elif option.startswith("--exclude-database="):
+            excludes.append(option.split("=", 1)[1])
+        elif option == "--no-role-passwords":
+            continue
+        elif option in ignored:
+            print(f"Compatibility: {option} is applied by restore policy; archive metadata is retained.", file=sys.stderr)
+        else:
+            dump_extra.append(option)
+    extra = dump_extra
     maintenance = os.environ.get("POSTGRES_MAINTENANCE_DATABASE", "postgres")
     names = pg.query(maintenance, "SELECT COALESCE(json_agg(datname ORDER BY datname), '[]'::json) "
-                     "FROM pg_database WHERE datallowconn AND NOT datistemplate")
+                     "FROM pg_database WHERE datallowconn AND datconnlimit != -2")
+    if excludes:
+        # pg_dumpall --filter patterns use psql's SQL-name pattern syntax.
+        names = [name for name in names if not any(database_pattern(pattern, name) for pattern in excludes)]
     if not names:
-        raise ValueError("No connectable non-template databases found; no backup was uploaded.")
+        raise ValueError("No connectable databases found; no backup was uploaded.")
     manifest = {"format_version": 2, "database": "all", "databases": {},
                 "source_image": os.environ.get("POSTGRES_SOURCE_IMAGE"),
                 "dump_client": command(["pg_dump", "--version"], stdout=subprocess.PIPE, text=True).stdout.strip()}
@@ -317,7 +396,7 @@ def backup_bundle(pg, work, extra):
         path = work / f"database-{index:06d}.dump"
         print(f"Archiving database {name!r}...", flush=True)
         info = describe_database(pg, name)
-        command(["pg_dump", *pg.args, *extra, "--encoding=UTF8", "--format=custom",
+        command(["pg_dump", *pg.args, *extra, "--format=custom",
                  "--file", str(path), "--dbname", conninfo(name)])
         command(["pg_restore", "--list", str(path)], stdout=subprocess.DEVNULL)
         info.update({"file": path.name, "sha256": file_hash(path)})
@@ -325,12 +404,12 @@ def backup_bundle(pg, work, extra):
         files.append(path)
     roles = work / "roles.sql"
     args = ["pg_dumpall", *pg.args, "--dbname", conninfo(maintenance), "--roles-only"]
-    if not enabled("POSTGRES_DUMP_ROLE_PASSWORDS"):
+    if not dump_role_passwords:
         args.append("--no-role-passwords")
     with roles.open("wb") as output:
         command(args, stdout=output)
     manifest["roles"] = {"file": roles.name, "sha256": file_hash(roles),
-                         "includes_passwords": enabled("POSTGRES_DUMP_ROLE_PASSWORDS")}
+                         "includes_passwords": dump_role_passwords}
     tablespaces = work / "tablespaces.sql"
     with tablespaces.open("wb") as output:
         command(["pg_dumpall", *pg.args, "--dbname", conninfo(maintenance), "--tablespaces-only"], stdout=output)
@@ -354,21 +433,19 @@ def unpack(source, work):
         command(["openssl", "enc", "-d", "-aes-256-cbc", "-in", str(source), "-out", str(decrypted),
                  "-pass", "env:ENCRYPTION_PASSWORD"])
         source = decrypted
-    sql = work / "unpacked.sql"
-    if source.name.endswith(".gz"):
-        with gzip.open(source, "rb") as src, sql.open("wb") as dst:
-            shutil.copyfileobj(src, dst)
-    elif source.name.endswith(".zip"):
-        with zipfile.ZipFile(source) as archive:
+    raw = work / "restore.sql"
+    with contextlib.ExitStack() as stack:
+        if source.name.endswith(".gz"):
+            src = stack.enter_context(gzip.open(source, "rb"))
+        elif source.name.endswith(".zip"):
+            archive = stack.enter_context(zipfile.ZipFile(source))
             files = [name for name in archive.namelist() if not name.endswith("/")]
             if len(files) != 1:
                 raise ValueError("ZIP backups must contain exactly one SQL file.")
-            with archive.open(files[0]) as src, sql.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-    else:
-        shutil.copyfile(source, sql)
-    raw = work / "restore.sql"
-    with sql.open("rb") as src, raw.open("wb") as dst:
+            src = stack.enter_context(archive.open(files[0]))
+        else:
+            src = stack.enter_context(source.open("rb"))
+        dst = stack.enter_context(raw.open("wb"))
         first = src.readline()
         metadata = None
         if first.startswith(HEADER):
@@ -378,7 +455,6 @@ def unpack(source, work):
         else:
             dst.write(first)
         shutil.copyfileobj(src, dst)
-    sql.unlink()
     if not raw.stat().st_size:
         raise ValueError("The backup SQL is empty.")
     if metadata and file_hash(raw) != metadata.get("sql_sha256"):
@@ -411,7 +487,7 @@ def preflight(pg, raw, metadata, databases=None):
         if metadata:
             source_name = name or ("postgres" if metadata["database"] == "all" else metadata["database"])
             source = metadata["databases"][source_name]
-            if target["server_version_num"] // 10000 != source["server_version_num"] // 10000:
+            if target["server_version_num"] // 10000 < source["server_version_num"] // 10000:
                 raise ValueError(f"{database}: PostgreSQL major version mismatch: source {source['server_version_num'] // 10000}, target {target['server_version_num'] // 10000}; prepare a matching target first.")
         expected = {ext["name"]: ext["version"] for ext in (source or {}).get("extensions", [])}
         ready = set(installed)
@@ -424,14 +500,16 @@ def preflight(pg, raw, metadata, databases=None):
                 raise ValueError(f"{database}: extension {extension!r} is unavailable on the target server. Install its package first.")
             version = installed.get(extension, available[extension]["version"])
             if extension in expected and version != expected[extension]:
-                raise ValueError(f"{database}: extension {extension!r} version mismatch: source {expected[extension]}, target {version}. Use matching extension packages.")
+                if not enabled("RESTORE_ALLOW_EXTENSION_VERSION_MISMATCH"):
+                    raise ValueError(f"{database}: extension {extension!r} version mismatch: source {expected[extension]}, target {version}. Use matching packages or explicitly set RESTORE_ALLOW_EXTENSION_VERSION_MISMATCH=true after reviewing compatibility.")
+                print(f"{database}: allowing extension {extension!r} version mismatch: source {expected[extension]}, target {version}.", file=sys.stderr)
             for dependency in ([] if extension in installed else available[extension]["requires"] or []):
                 if dependency not in ready:
                     raise ValueError(f"{database}: extension {extension!r} requires {dependency!r} before it is created. Match the source versions or prepare the dependency in this database first.")
             ready.add(extension)
-        if source:
+        if source and source.get("shared_preload_libraries") is not None and target.get("shared_preload_libraries") is not None:
             def libraries(value):
-                return {part.strip().strip('"').split("/")[-1] for part in value.split(",") if part.strip()}
+                return {part.strip().strip('"').split("/")[-1] for part in (value or "").split(",") if part.strip()}
             required = libraries(source["shared_preload_libraries"]) & set(extensions)
             missing = required - libraries(target["shared_preload_libraries"])
             if missing:
@@ -456,8 +534,12 @@ def restore(source, work):
         raise ValueError("Database selection requires an archive bundle; legacy SQL cannot be filtered safely.")
     pg = Postgres()
     raw, metadata = unpack(source, work)
-    roles, multiple = preflight(pg, raw, metadata)
-    prepared = prepare_roles(raw, work / "prepared.sql", roles)
+    roles = set(pg.query(pg.database, "SELECT COALESCE(json_agg(rolname), '[]'::json) FROM pg_roles"))
+    declarations = {None: []}
+    prepared = work / "prepared.sql"
+    raw.rename(prepared)
+    prepare_roles(prepared, prepared, roles, declarations)
+    _, multiple = preflight(pg, prepared, metadata, declarations)
     if os.environ.get("DROP_PUBLIC", "no") == "yes":
         if multiple:
             raise ValueError("DROP_PUBLIC=yes is not supported for all-database backups.")
@@ -466,19 +548,30 @@ def restore(source, work):
     print("Restore complete", flush=True)
 
 
-def prepare_roles(raw, prepared, roles):
+def prepare_roles(raw, prepared, roles, declarations=None):
     role_policy = os.environ.get("RESTORE_EXISTING_ROLES", "preserve")
     if role_policy not in ("preserve", "apply"):
         raise ValueError("RESTORE_EXISTING_ROLES must be preserve or apply.")
-    with prepared.open("w", encoding="utf-8", newline="") as output:
+    current = None
+    # In-place compaction never writes ahead of the scanner: each replacement
+    # is shorter than its original statement. Keep only one full SQL file.
+    inplace = raw == prepared
+    with prepared.open("r+b" if inplace else "wb") as output:
         for kind, chunk in sql_chunks(raw):
+            if declarations is not None:
+                if kind == "meta" and re.match(r"\\(?:connect|c)\s", chunk):
+                    current = connection_database(chunk)
+                    declarations.setdefault(current, [])
+                elif kind == "sql" and (extension := EXTENSION.match(chunk.strip())):
+                    declarations[current].append(identifier(extension.group(1)))
             match = ROLE.match(chunk.strip()) if kind == "sql" else None
             if match and identifier(match.group(2)) in roles and (match.group(1).upper() == "CREATE" or role_policy == "preserve"):
                 # Preserve existing target passwords AND role attributes. Only
                 # top-level CREATE/ALTER ROLE from the dump are skipped.
-                output.write("-- Existing target role definition preserved.\n")
+                output.write(b"\n")
             else:
-                output.write(chunk)
+                output.write(chunk.encode("utf-8", errors="surrogateescape"))
+        output.truncate()
     return prepared
 
 
@@ -537,10 +630,33 @@ def restore_bundle(source, work):
         raise ValueError("DROP_PUBLIC=yes is not supported for archive bundles; restore into empty databases.")
     # Parse schemas and validate ALL selected databases before any target mutation.
     declarations = {}
+    database_sql = {}
     for index, (name, info) in enumerate(databases.items()):
         schema = work / f"schema-{index}.sql"
-        command(["pg_restore", "--schema-only", "--file", str(schema), str(folder / info["file"])])
-        declarations[name] = plan(schema)[None]
+        command(["pg_restore", "--create", "--schema-only", *options,
+                 "--file", str(schema), str(folder / info["file"])])
+        declarations[name] = []
+        creation = None
+        properties = []
+        for kind, chunk in sql_chunks(schema):
+            if kind != "sql":
+                continue
+            statement = chunk.strip()
+            if match := EXTENSION.match(statement):
+                declarations[name].append(identifier(match.group(1)))
+            if re.match(r"CREATE DATABASE\s", statement, re.I):
+                creation = statement
+                if "--no-tablespaces" in options:
+                    creation = re.sub(r"\s+TABLESPACE\s*=\s*" + IDENTIFIER + r"\s*;$", ";", creation, flags=re.I)
+            elif re.match(r"(?:ALTER DATABASE|COMMENT ON DATABASE|SECURITY LABEL .* ON DATABASE)\s", statement, re.I):
+                properties.append(statement)
+            elif re.match(r"(?:GRANT|REVOKE)\b.*\bON DATABASE\s", statement, re.I | re.S):
+                properties.append(statement)
+            elif re.match(r"ALTER ROLE\s+" + IDENTIFIER + r"\s+IN DATABASE\s", statement, re.I) and restore_roles:
+                properties.append(statement)
+        if creation is None:
+            raise ValueError(f"Missing CREATE DATABASE statement for {name!r}.")
+        database_sql[name] = (creation, properties)
     roles, _ = preflight(pg, None, manifest, declarations)
     prepared = prepare_roles(folder / manifest["roles"]["file"], work / "roles-prepared.sql", roles)
     if restore_roles:
@@ -550,10 +666,16 @@ def restore_bundle(source, work):
     existing = pg.query(pg.database, "SELECT COALESCE(json_agg(datname), '[]'::json) FROM pg_database")
     for name, info in databases.items():
         print(f"Restoring database {name!r}...", flush=True)
-        creation = [] if name in existing else ["--create"]
-        database = name if name in existing else pg.database
-        command(["pg_restore", *pg.args, "--exit-on-error", *options, *creation,
-                 "--dbname", conninfo(database), str(folder / info["file"])])
+        creation, properties = database_sql[name]
+        if name not in existing:
+            command([*pg.psql(pg.database), "-c", creation])
+            # These archive entries are otherwise only applied by --create.
+            property_file = work / "database-properties.sql"
+            property_file.write_text("\n".join(properties), encoding="utf-8", errors="surrogateescape")
+            prepare_roles(property_file, work / "database-properties-prepared.sql", roles)
+            command([*pg.psql(pg.database), "-f", str(work / "database-properties-prepared.sql")])
+        command(["pg_restore", *pg.args, "--exit-on-error", *options,
+                 "--dbname", conninfo(name), str(folder / info["file"])])
     print("Restore complete", flush=True)
 
 

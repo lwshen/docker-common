@@ -53,8 +53,7 @@ The same validation logic is used by the S3 and local-file images. New backups
 carry embedded environment metadata and a SHA-256 checksum. Before changing the
 target, the restore checks the checksum, PostgreSQL major version, the versions
 and availability of extensions created by the dump, their dependency order, and
-extension preload libraries recorded by the source. Use a target with matching
-server and extension packages. Checks do not install packages, enable extensions,
+extension preload libraries recorded by the source. Use the same or a newer PostgreSQL major and matching extension packages. Checks do not install packages, enable extensions,
 or replace a full restore rehearsal.
 
 For existing target databases, an already-enabled matching extension takes
@@ -96,3 +95,18 @@ If you wish to drop the public schema (drop schema public cascade; create schema
 
 This operation runs only after preflight succeeds and is rejected for dumps that
 switch between databases.
+
+`RESTORE_ALLOW_EXTENSION_VERSION_MISMATCH=false` is the default. Set it to `true`
+for an explicitly reviewed extension migration; it permits version differences
+while retaining availability and dependency checks. PostgreSQL upgrades to newer
+majors are allowed; downgrades are rejected. Preload metadata unavailable to the
+connected role is reported as unknown and its preload comparison is skipped.
+
+Default bundle restores create databases using target default storage even when
+the source database used a custom tablespace. With `RESTORE_ROLES=false`,
+database-specific `ALTER ROLE ... IN DATABASE ... SET` settings are skipped too.
+
+Plain SQL restore needs one uncompressed temporary SQL file, plus the downloaded
+or mounted source and, if encrypted, its decrypted compressed copy. Role filtering
+compacts the temporary SQL in place; metadata collection and filtering share one
+SQL scan. Source SQL bytes are preserved without UTF-8 transcoding.

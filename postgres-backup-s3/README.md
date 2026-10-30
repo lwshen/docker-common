@@ -14,7 +14,7 @@ $ docker run -e S3_ACCESS_KEY_ID=key -e S3_SECRET_ACCESS_KEY=secret -e S3_BUCKET
 
 | Variable                      | Default   | Required | Description                                                                                                                       |
 | ----------------------------- | --------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| POSTGRES_DATABASE             |           | Y        | Database to back up, or 'all' for all connectable non-template databases                                                          |
+| POSTGRES_DATABASE             |           | Y        | Database to back up, or 'all' for all connectable, valid databases (including templates)                                          |
 | POSTGRES_HOST                 |           | Y        | The PostgreSQL host                                                                                                               |
 | POSTGRES_PORT                 | 5432      |          | The PostgreSQL port                                                                                                               |
 | POSTGRES_USER                 |           | Y        | The PostgreSQL user                                                                                                               |
@@ -66,7 +66,7 @@ docker build -f postgres-backup-s3/Dockerfile -t postgres-backup-s3:local .
 
 ### All-database archive bundles
 
-Keep `POSTGRES_DATABASE=all`. Each connectable non-template database is exported
+Keep `POSTGRES_DATABASE=all`. Each connectable, valid database (including `template1` and user templates) is exported
 separately using `pg_dump --format=custom`, then packaged as one `.tar` S3 object:
 
 - `database-000000.dump`, etc.: database schemas, data, ownership, ACLs and tablespace assignments.
@@ -85,9 +85,12 @@ is not a synchronized snapshot across databases. Avoid database/extension/role
 DDL changes during the backup.
 
 `POSTGRES_EXTRA_OPTS=auto` retains all recovery metadata for `all`. For this mode,
-only `--verbose`, `-v`, `--blobs`, `-b` and `--large-objects` are accepted as explicit
-extra options. Move the old `--no-owner --no-acl --no-tablespaces` settings to the
-restore environment; those flags are now enabled there by default.
+extra `pg_dump` options are forwarded to each database export. Repeated
+`--exclude-database=PATTERN` (or `--exclude-database PATTERN`) options filter the
+database list; `*` and `?` match names, and double quotes preserve literal case.
+Legacy `--no-owner --no-acl --no-tablespaces` flags remain accepted; the archive
+retains that metadata and the default restore policy omits it.
+Output file, format and compression options remain managed by the tool.
 
 ### Restore policies
 
@@ -156,3 +159,21 @@ WARNING: this will delete all files in the S3_PREFIX path, not just those create
 ### Encryption
 
 You can additionally set the `ENCRYPTION_PASSWORD` environment variable like `-e ENCRYPTION_PASSWORD="superstrongpassword"` to encrypt the backup. Decrypt with `openssl aes-256-cbc -d -in backup.tar.enc -out backup.tar` for bundles, or use the corresponding `.sql.gz` filenames for single-database backups.
+
+### Retention safety and encoding
+
+`DELETE_OLDER_THAN` requires a non-empty `S3_PREFIX` (neither empty nor `/`).
+Cleanup only matches this database's generated `PREFIX/YYYYMMDD/DATABASE_TIMESTAMP`
+backup filenames, including legacy timestamps and encrypted files. Other objects
+and backups for other databases are retained. Use a dedicated backup prefix;
+filenames alone cannot prove who uploaded an object.
+
+Exports use the database's native encoding unless explicitly overridden in
+`POSTGRES_EXTRA_OPTS`. Legacy SQL restores preserve original bytes, including
+LATIN1, WIN1252 and SQL_ASCII. Missing permission to read preload configuration
+produces a warning and records unknown metadata rather than failing the backup.
+
+Restores allow the same or a newer PostgreSQL major version; restoring to an older
+major is rejected. Extension versions still must match by default. Set
+`RESTORE_ALLOW_EXTENSION_VERSION_MISMATCH=true` only after reviewing extension
+migration compatibility; availability and dependency checks remain enabled.

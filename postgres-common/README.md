@@ -38,3 +38,7 @@ role attributes/passwords, legacy gzip/ZIP compatibility, and SQL error handling
 ```sh
 python3 postgres-common/tests/integration.py
 ```
+
+Regression coverage also includes restricted backup roles, native SQL_ASCII and
+legacy LATIN1 bytes, template and invalid databases, database-name quoting,
+legacy export options, database tablespaces and database-specific role settings.

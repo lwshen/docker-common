@@ -61,13 +61,15 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
 
     def test_connection_names(self):
         self.assertEqual(tools.connection_database(r'\connect test'), 'test')
+        self.assertEqual(tools.connection_database(r'''\connect -reuse-previous=on "dbname='back\\slash""quote'"'''), 'back\\slash"quote')
         self.assertEqual(tools.connection_database(r'''\connect -reuse-previous=on "dbname='a b'"'''), 'a b')
-        self.assertEqual(tools.connection_database(r'''\connect -reuse-previous=on "dbname='a\\'b'"'''), "a'b")
+        self.assertEqual(tools.connection_database(r'''\connect -reuse-previous=on "dbname='a\'b'"'''), "a'b")
 
     def test_preserve_existing_role_definitions_without_touching_function_data(self):
         raw = self.write("CREATE ROLE postgres;\nALTER ROLE postgres WITH SUPERUSER PASSWORD 'source';\n"
                          "CREATE ROLE business;\nCREATE FUNCTION f() RETURNS text AS $$ALTER ROLE postgres;$$ LANGUAGE sql;\n")
-        with mock.patch.object(tools, "preflight", return_value=({"postgres"}, False)), \
+        with mock.patch.object(tools.Postgres, "query", return_value=["postgres"]), \
+                mock.patch.object(tools, "preflight", return_value=({"postgres"}, False)), \
                 mock.patch.object(tools, "command") as command:
             tools.restore(raw, self.work)
         prepared = (self.work / "prepared.sql").read_text()
@@ -79,7 +81,8 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
     def test_apply_role_policy_skips_duplicate_create_but_keeps_alter(self):
         os.environ["RESTORE_EXISTING_ROLES"] = "apply"
         raw = self.write("CREATE ROLE postgres;\nALTER ROLE postgres WITH CONNECTION LIMIT 3;\n")
-        with mock.patch.object(tools, "preflight", return_value=({"postgres"}, False)), mock.patch.object(tools, "command"):
+        with mock.patch.object(tools.Postgres, "query", return_value=["postgres"]), \
+                mock.patch.object(tools, "preflight", return_value=({"postgres"}, False)), mock.patch.object(tools, "command"):
             tools.restore(raw, self.work)
         prepared = (self.work / "prepared.sql").read_text()
         self.assertNotIn("CREATE ROLE postgres;", prepared)
@@ -164,6 +167,64 @@ CREATE EXTENSION IF NOT EXISTS "CaseSensitive" WITH SCHEMA public;
             tools.backup()
         command.assert_not_called()
 
+    def test_identifier_dollars_and_trailing_comments_preserve_passwords(self):
+        raw = self.write("CREATE ROLE a$b$c; -- trailing comment\nALTER ROLE a$b$c PASSWORD 'source';\n")
+        prepared = self.work / "prepared.sql"
+        tools.prepare_roles(raw, prepared, {"a$b$c"})
+        self.assertNotIn("source", prepared.read_text())
+        self.assertIn("trailing comment", prepared.read_text())
+
+    def test_legacy_bytes_survive_inplace_compaction(self):
+        raw = self.work / "legacy.sql"
+        payload = b"CREATE ROLE root; -- comment\nALTER ROLE root PASSWORD 'source';\nCOPY t FROM stdin;\n\xff\n\\.\n"
+        raw.write_bytes(payload)
+        declarations = {None: []}
+        tools.prepare_roles(raw, raw, {"root"}, declarations)
+        self.assertEqual(raw.read_bytes(), b"\n -- comment\n\n\nCOPY t FROM stdin;\n\xff\n\\.\n")
+
+    def test_multiline_statement_is_joined_only_at_completion(self):
+        raw = self.write("CREATE FUNCTION f() RETURNS text AS $$\n" + "x\n" * 10000 + "$$ LANGUAGE sql;\n")
+        self.assertEqual("".join(chunk for _, chunk in tools.sql_chunks(raw)), raw.read_text())
+
+    def test_link_port_uses_numeric_port(self):
+        with mock.patch.dict(os.environ, {"POSTGRES_PORT": "tcp://127.0.0.1:5432", "POSTGRES_PORT_5432_TCP_PORT": "5433"}):
+            self.assertEqual(tools.Postgres().args[3], "5433")
+
+    def test_cleanup_requires_prefix_before_dumping(self):
+        os.environ["DELETE_OLDER_THAN"] = "7 days ago"
+        with mock.patch.object(tools, "S3", return_value=mock.Mock(prefix="")), \
+                mock.patch.object(tools, "command") as command, self.assertRaisesRegex(ValueError, "non-empty"):
+            tools.backup()
+        command.assert_not_called()
+
+    def test_cleanup_only_owns_matching_database_backup_keys(self):
+        s3 = object.__new__(tools.S3)
+        s3.prefix = "backup"
+        self.assertTrue(s3.owns_backup("backup/20261029/app_2026-10-29_010203.sql.gz.enc", "app"))
+        for key in ["elsewhere/20261029/app_2026-10-29_010203.sql.gz", "backup/notes.sql.gz",
+                    "backup/20261029/other_2026-10-29_010203.sql.gz", "backup/20261029/app_2026-10-29_010203.sql.gz.tmp"]:
+            self.assertFalse(s3.owns_backup(key, "app"))
+
+    def test_single_backup_does_not_parse_sql_or_force_utf8(self):
+        pg = mock.Mock(database="app")
+        raw = b"COPY t FROM stdin;\n\xff\n\\.\n"
+        def command(args, **kwargs):
+            if args[0] == "pg_dump" and "--version" not in args:
+                kwargs["stdout"].write(raw)
+            return subprocess.CompletedProcess(args, 0, stdout="pg_dump 18")
+        with mock.patch.object(tools, "plan", side_effect=AssertionError("unnecessary scan")), \
+                mock.patch.object(tools, "describe_database", return_value={}), \
+                mock.patch.object(tools, "command", side_effect=command):
+            compressed = tools.backup_sql(pg, self.work, ["pg_dump"])
+        with gzip.open(compressed, "rb") as src:
+            src.readline()
+            self.assertEqual(src.read(), raw)
+
+    def test_database_exclusion_patterns(self):
+        for pattern, name in [('app*', 'app_one'), ('"Mixed"', 'Mixed'), ('app?', 'app1'), ('"a.b"', 'a.b')]:
+            self.assertTrue(tools.database_pattern(pattern, name))
+        self.assertFalse(tools.database_pattern('"Mixed"', 'mixed'))
+
 
 class BundleTests(TempCase):
     def bundle(self, corrupt=False, complete=True):
@@ -215,7 +276,7 @@ class BundleTests(TempCase):
         def command(args, **kwargs):
             calls.append(args)
             if "--schema-only" in args:
-                Path(args[args.index("--file") + 1]).write_text("CREATE EXTENSION example;")
+                Path(args[args.index("--file") + 1]).write_text("CREATE DATABASE app WITH TEMPLATE = template0 TABLESPACE = source_space;\nCREATE EXTENSION example;\nALTER ROLE missing IN DATABASE app SET search_path TO public;\n")
 
         with mock.patch.object(tools, "Postgres", return_value=pg), \
                 mock.patch.object(tools, "preflight", return_value=({"postgres"}, True)) as check, \
@@ -226,9 +287,13 @@ class BundleTests(TempCase):
         self.assertEqual(len(restores), 1)
         for option in ["--no-owner", "--no-acl", "--no-tablespaces"]:
             self.assertEqual(option in restores[0], not faithful)
-        self.assertIn("--create", restores[0])
+        self.assertNotIn("--create", restores[0])
+        creation = next(args[-1] for args in calls if "-c" in args)
+        self.assertEqual("TABLESPACE" in creation, faithful)
         role_calls = [args for args in calls if args[0] != "pg_restore"]
-        self.assertEqual(len(role_calls), 1 if faithful else 0)
+        self.assertEqual(len(role_calls), 3 if faithful else 2)
+        props = (self.work / "database-properties-prepared.sql").read_text()
+        self.assertEqual("ALTER ROLE missing" in props, faithful)
 
     def test_default_policy_does_not_restore_roles_or_source_placement(self):
         self.restore_policy(False)
@@ -320,6 +385,15 @@ class PreflightTests(TempCase):
     def test_installed_version_takes_precedence_over_new_default(self):
         self.check(["pg_search"], [{"name": "pg_search", "version": "0.26", "requires": ["vector"]}],
                    "0.24", [{"name": "pg_search", "version": "0.24"}])
+
+    def test_newer_server_is_allowed(self):
+        self.check([], [], "0.24", target_major=19)
+
+    def test_extension_version_override_still_checks_dependencies(self):
+        with mock.patch.dict(os.environ, {"RESTORE_ALLOW_EXTENSION_VERSION_MISMATCH": "true"}):
+            self.check(["pg_search"], [{"name": "pg_search", "version": "0.26", "requires": None}], "0.24")
+            with self.assertRaisesRegex(ValueError, "requires"):
+                self.check(["pg_search"], [{"name": "pg_search", "version": "0.26", "requires": ["vector"]}], "0.24")
 
 
 if __name__ == "__main__":

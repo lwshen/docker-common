@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import tarfile
 import time
@@ -14,6 +15,8 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "postgres-common"))
+import backup_tools
 
 
 def run(args, **kwargs):
@@ -32,7 +35,7 @@ def main():
             for index, name in enumerate(names):
                 password = "source-password" if index == 0 else "target-password"
                 run(["docker", "run", "-d", "--name", name, "-p", "127.0.0.1::5432",
-                     "--tmpfs", "/var/lib/postgresql:rw,size=256m",
+                     "--tmpfs", "/var/lib/postgresql:rw,size=512m",
                      "-e", "POSTGRES_PASSWORD=" + password, "postgres:18"])
                 port = run(["docker", "inspect", "--format",
                             '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}', name])
@@ -77,6 +80,20 @@ def main():
             sql(source, "ALTER ROLE postgres CONNECTION LIMIT 11; CREATE ROLE app_owner; CREATE ROLE app_reader")
             sql(source, "ALTER TABLE items OWNER TO app_owner; GRANT SELECT ON items TO app_reader", "app")
 
+            sql(source, "ALTER ROLE app_reader IN DATABASE app SET search_path TO public; REVOKE CONNECT ON DATABASE app FROM PUBLIC; GRANT CONNECT ON DATABASE app TO app_reader")
+            sql(source, "CREATE DATABASE user_template TEMPLATE template0 IS_TEMPLATE true")
+            sql(source, "CREATE TABLE template_probe(id int); INSERT INTO template_probe VALUES(7)", "template1")
+            sql(source, "CREATE DATABASE omitted_probe")
+            sql(source, "CREATE DATABASE invalid_probe")
+            sql(source, "UPDATE pg_database SET datconnlimit = -2 WHERE datname = 'invalid_probe'")
+            special_name = 'back\\slash"quote'
+            sql(source, 'CREATE DATABASE "' + special_name.replace('"', '""') + '"')
+            sql(source, "CREATE DATABASE ascii_probe TEMPLATE template0 ENCODING 'SQL_ASCII' LC_COLLATE 'C' LC_CTYPE 'C'")
+            sql(source, "CREATE TABLE bytes_probe(value text); INSERT INTO bytes_probe VALUES(convert_from(decode('ff','hex'), 'SQL_ASCII'))", "ascii_probe")
+            run(["docker", "exec", names[0], "sh", "-c", "mkdir /var/lib/postgresql/backup-space && chown postgres /var/lib/postgresql/backup-space"])
+            sql(source, "CREATE TABLESPACE source_space LOCATION '/var/lib/postgresql/backup-space'")
+            sql(source, "CREATE DATABASE placed_probe TABLESPACE source_space")
+
             # Use real pg_dump/psql/gzip; replace only the S3 transport with a file copy.
             bin_dir = work / "bin"
             bin_dir.mkdir()
@@ -85,7 +102,7 @@ def main():
             aws.chmod(0o755)
             archive = work / "all.tar"
             env = {**source, "PATH": str(bin_dir) + ":" + os.environ["PATH"], "POSTGRES_DATABASE": "all",
-                   "POSTGRES_EXTRA_OPTS": "auto",
+                   "POSTGRES_EXTRA_OPTS": "--no-owner --no-acl --no-tablespaces --exclude-database=omitted*",
                    "POSTGRES_DUMP_ROLE_PASSWORDS": "false", "S3_BUCKET": "test", "S3_PREFIX": "backup",
                    "S3_ACCESS_KEY_ID": "test", "S3_SECRET_ACCESS_KEY": "test", "S3_ENDPOINT": "None",
                    "S3_REGION": "us-west-1", "ENCRYPTION_PASSWORD": "None", "DELETE_OLDER_THAN": "None",
@@ -97,6 +114,9 @@ def main():
             assert metadata["databases"]["app"]["extensions"]
             assert "PASSWORD " not in roles
             assert "postgres" in metadata["databases"]
+            assert "template1" in metadata["databases"] and "user_template" in metadata["databases"]
+            assert "invalid_probe" not in metadata["databases"] and "omitted_probe" not in metadata["databases"]
+            assert special_name in metadata["databases"]
             target["BACKUP_FILE"] = str(archive)
             result = subprocess.run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=target, text=True, capture_output=True)
             assert result.returncode != 0 and "version mismatch" in result.stderr, result.stderr
@@ -108,6 +128,7 @@ def main():
                 subprocess.run(["pg_dumpall", "-h", source["POSTGRES_HOST"], "-p", source["POSTGRES_PORT"],
                                 "-U", "postgres", "--no-role-passwords", "--no-owner", "--no-acl", "--no-tablespaces"],
                                env=source, stdout=output, check=True)
+            assert special_name in backup_tools.plan(legacy), repr([line for line in legacy.read_text(errors="surrogateescape").splitlines() if line.startswith("\\connect")]) + repr(backup_tools.plan(legacy))
             target["BACKUP_FILE"] = str(legacy)
             result = subprocess.run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=target, text=True, capture_output=True)
             assert result.returncode != 0 and "requires 'backup_vector'" in result.stderr, result.stderr
@@ -127,6 +148,12 @@ def main():
             print("PASS: default restore skips global roles, ownership, ACLs and tablespaces", flush=True)
 
             assert sql(target, "SELECT count(*) FROM pg_database WHERE datname = 'odd = ''db'") == "1"
+            assert sql(target, "SELECT count(*) FROM pg_database WHERE datname = '" + special_name + "'") == "1"
+            assert sql(target, "SELECT encode(convert_to(value, 'SQL_ASCII'), 'hex') FROM bytes_probe", "ascii_probe") == "ff"
+            assert sql(target, "SELECT id FROM template_probe", "template1") == "7"
+            assert sql(target, "SELECT datistemplate FROM pg_database WHERE datname='user_template'") == "t"
+            assert sql(target, "SELECT t.spcname FROM pg_database d JOIN pg_tablespace t ON t.oid=d.dattablespace WHERE d.datname='placed_probe'") == "pg_default"
+            print("PASS: SQL_ASCII bytes, template databases, unusual names and portable database tablespaces", flush=True)
             # The same backup retains enough information for a faithful restore.
             encrypted = work / "all.tar.enc"
             run(["sh", str(ROOT / "postgres-backup-s3/backup.sh")],
@@ -141,10 +168,12 @@ def main():
             assert sql(target, "SELECT has_table_privilege('app_reader','items','SELECT')", "app") == "t"
             assert sql(target, "SELECT rolconnlimit FROM pg_roles WHERE rolname = 'postgres'") == "-1"
             assert sql(target, "SELECT count(*) FROM items", "app") == "3"
+            assert sql(target, "SELECT has_database_privilege('app_reader','app','CONNECT')") == "t"
+            assert sql(target, "SELECT has_database_privilege('app_owner','app','CONNECT')") == "f"
             print("PASS: encrypted selected-database restore applies ownership/ACLs and preserves existing passwords", flush=True)
 
             # Restore old gzip/zip files into fresh empty databases as well.
-            sql(source, "CREATE DATABASE plain_source")
+            sql(source, "CREATE DATABASE plain_source TEMPLATE template0")
             sql(source, "CREATE TABLE plain_items(id int); INSERT INTO plain_items VALUES(42)", "plain_source")
             dump = work / "plain.sql"
             with dump.open("w") as out:
@@ -160,11 +189,32 @@ def main():
                     with zipfile.ZipFile(compressed, "w") as zip_output:
                         zip_output.write(dump, "dump.sql")
                 database = "legacy_" + suffix
-                sql(target, "CREATE DATABASE " + database)
+                sql(target, "CREATE DATABASE " + database + " TEMPLATE template0")
                 case_env = {**target, "POSTGRES_DATABASE": database, "BACKUP_FILE": str(compressed)}
                 run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env=case_env)
                 assert sql(target, "SELECT id FROM plain_items", database) == "42"
             print("PASS: legacy gzip and ZIP backups restore correctly", flush=True)
+
+            # Metadata collection must work without pg_read_all_settings.
+            sql(source, "CREATE ROLE backup_reader LOGIN PASSWORD 'reader'; GRANT pg_read_all_data TO backup_reader")
+            single = work / "reader.sql.gz"
+            run(["sh", str(ROOT / "postgres-backup-s3/backup.sh")], env={**env,
+                "POSTGRES_DATABASE": "plain_source", "POSTGRES_USER": "backup_reader",
+                "POSTGRES_PASSWORD": "reader", "POSTGRES_EXTRA_OPTS": "auto", "TEST_UPLOAD": str(single)})
+            print("PASS: non-superuser backup succeeds without pg_read_all_settings", flush=True)
+
+            # Historical LATIN1 dumps pass through Python without transcoding.
+            sql(source, "CREATE DATABASE latin_probe TEMPLATE template0 ENCODING 'LATIN1' LC_COLLATE 'C' LC_CTYPE 'C'")
+            sql(source, "CREATE TABLE latin_items(value text); INSERT INTO latin_items VALUES(convert_from(decode('e9','hex'), 'LATIN1'))", "latin_probe")
+            latin = work / "latin.sql.gz"
+            result = subprocess.run(["pg_dump", "-h", source["POSTGRES_HOST"], "-p", source["POSTGRES_PORT"],
+                                     "-U", "postgres", "--no-owner", "--no-acl", "latin_probe"], env=source, capture_output=True, check=True)
+            with gzip.open(latin, "wb") as out:
+                out.write(result.stdout)
+            sql(target, "CREATE DATABASE latin_target TEMPLATE template0 ENCODING 'LATIN1' LC_COLLATE 'C' LC_CTYPE 'C'")
+            run(["sh", str(ROOT / "postgres-restore-file/restore.sh")], env={**target, "POSTGRES_DATABASE": "latin_target", "BACKUP_FILE": str(latin)})
+            assert sql(target, "SELECT encode(convert_to(value, 'LATIN1'), 'hex') FROM latin_items", "latin_target") == "e9"
+            print("PASS: legacy LATIN1 gzip restore preserves bytes", flush=True)
 
             broken = work / "broken.sql"
             broken.write_text("CREATE TABLE restore_probe(id int);\nSELECT nonexistent_function();\nCREATE TABLE must_not_exist(id int);\n")
