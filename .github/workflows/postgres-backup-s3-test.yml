@@ -7,6 +7,8 @@ on:
       - postgres-backup-s3/**
       - postgres-restore-s3/**
       - postgres-restore-file/**
+      - postgres-common/**
+      - .dockerignore
       - .github/workflows/postgres-backup-s3-test.yml
       - .github/actions/setup-minio/**
   push:
@@ -17,10 +19,23 @@ on:
       - postgres-backup-s3/**
       - postgres-restore-s3/**
       - postgres-restore-file/**
+      - postgres-common/**
+      - .dockerignore
       - .github/workflows/postgres-backup-s3-test.yml
       - .github/actions/setup-minio/**
 
 jobs:
+  validation_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Unit tests for failure handling and SQL preparation
+        run: python3 -m unittest discover -s postgres-common/tests -v
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: PostgreSQL integration tests for restore preflight
+        run: python3 postgres-common/tests/integration.py
+
   backup_test:
     runs-on: ubuntu-latest
     services:
@@ -58,9 +73,9 @@ jobs:
 
       - name: Build postgres-backup-s3 image
         run: |
-          docker build -t postgres-backup-s3:test postgres-backup-s3
+          docker build -t postgres-backup-s3:test -f postgres-backup-s3/Dockerfile .
 
-      - name: Test all-database backup defaults and target passwords
+      - name: Test per-database archive bundles and restore policies
         run: |
           set -euo pipefail
           docker exec -u postgres ${{ job.services.postgres.id }} mkdir /tmp/backup-source-tablespace
@@ -96,20 +111,26 @@ jobs:
               "${password_opts[@]}" \
               postgres-backup-s3:test
             ./mc cp -r "myminio/test-bucket/backup-all-$mode/" "./backup-all-$mode/"
-            gunzip -c ./backup-all-$mode/*/*.sql.gz > "all-$mode.sql"
+            mkdir "all-$mode"
+            tar -xf ./backup-all-$mode/*/*.tar -C "all-$mode"
           done
-          if grep -Eq '^ALTER ROLE .* PASSWORD ' all-default.sql; then
+          if grep -Eq '^ALTER ROLE .* PASSWORD ' all-default/roles.sql; then
             echo 'Default all-database backup unexpectedly includes role passwords'
             exit 1
           fi
-          grep -Eq '^ALTER ROLE .* PASSWORD ' all-include.sql
-          if grep -Eq 'OWNER TO|^(GRANT|REVOKE) .* ON |backup_source_space' all-default.sql; then
-            echo 'Default backup unexpectedly includes ownership, object ACLs or source tablespaces'
-            exit 1
-          fi
+          grep -Eq '^ALTER ROLE .* PASSWORD ' all-include/roles.sql
+          extra_archive=$(python3 -c 'import json; print(json.load(open("all-default/manifest.json"))["databases"]["backup_extra"]["file"])')
+          docker run --rm -v "$PWD/all-default:/backup:ro" --entrypoint pg_restore \
+            postgres-backup-s3:test --schema-only --file /dev/stdout "/backup/$extra_archive" > all-schema.sql
+          grep -q 'OWNER TO backup_login' all-schema.sql
+          grep -q 'GRANT SELECT' all-schema.sql
+          grep -q 'backup_source_space' all-schema.sql
+          grep -q 'CREATE TABLESPACE backup_source_space' all-default/tablespaces.sql
+          docker build -t postgres-restore-s3:bundle-test -f postgres-restore-s3/Dockerfile .
+          docker build -t postgres-restore-file:bundle-test -f postgres-restore-file/Dockerfile .
 
           trap 'docker rm -f all-restore-target >/dev/null 2>&1 || true' EXIT
-          docker run -d --name all-restore-target \
+          docker run -d --name all-restore-target -p 127.0.0.1::5432 \
             -e POSTGRES_PASSWORD=target-admin-password postgres:18
           for attempt in {1..30}; do
             if docker exec all-restore-target pg_isready -h 127.0.0.1 -U postgres; then
@@ -121,13 +142,12 @@ jobs:
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
             -c "CREATE ROLE backup_login LOGIN PASSWORD 'target-login-password';"
 
-          # Skip only CREATE ROLE for roles deliberately pre-created on the target,
-          # so ON_ERROR_STOP catches every unexpected restore error.
-          sed -e '/^CREATE ROLE postgres;$/d' -e '/^CREATE ROLE backup_login;$/d' \
-            all-default.sql > all-restore.sql
-          docker cp all-restore.sql all-restore-target:/tmp/dump.sql
-          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
-            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f /tmp/dump.sql
+          docker run --rm --network=host \
+            -e POSTGRES_HOST=localhost -e POSTGRES_PORT="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' all-restore-target)" \
+            -e POSTGRES_DATABASE=postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=target-admin-password \
+            -e S3_ACCESS_KEY_ID=minio_access_key -e S3_SECRET_ACCESS_KEY=minio_secret_key \
+            -e S3_BUCKET=test-bucket -e S3_ENDPOINT=http://localhost:9000 -e S3_PREFIX=backup-all-default \
+            postgres-restore-s3:bundle-test
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
             psql -XAt -h 127.0.0.1 -U postgres -d test -c 'SELECT count(*) FROM test_table')" = 3
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
@@ -139,7 +159,24 @@ jobs:
             psql -XAt -h 127.0.0.1 -U backup_login -d postgres -c 'SELECT current_user')" = backup_login
           test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
             psql -XAt -h 127.0.0.1 -U postgres -d postgres \
-            -c "SELECT rolpassword IS NULL FROM pg_authid WHERE rolname = 'backup_new_login'")" = t
+            -c "SELECT count(*) FROM pg_roles WHERE rolname = 'backup_new_login'")" = 0
+
+          # The same bundle can retain owners and grants, without restoring source storage paths.
+          docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -c 'DROP DATABASE backup_extra'
+          backup_files=("$PWD"/backup-all-default/*/*.tar)
+          docker run --rm --network=container:all-restore-target \
+            -v "${backup_files[0]}:/backup/all.tar:ro" -e BACKUP_FILE=/backup/all.tar \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DATABASE=postgres \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=target-admin-password \
+            -e RESTORE_DATABASE=backup_extra -e RESTORE_ROLES=true \
+            -e RESTORE_NO_OWNER=false -e RESTORE_NO_ACL=false postgres-restore-file:bundle-test
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
+            -c "SELECT tableowner FROM pg_tables WHERE tablename = 'extra_data'")" = backup_login
+          test "$(docker exec -e PGPASSWORD=target-admin-password all-restore-target \
+            psql -XAt -h 127.0.0.1 -U postgres -d backup_extra \
+            -c "SELECT has_table_privilege('backup_new_login','extra_data','SELECT')")" = t
 
       - name: Run backup
         run: |
@@ -397,7 +434,7 @@ jobs:
 
       - name: Build postgres-restore-s3 image
         run: |
-          docker build -t postgres-restore-s3:test postgres-restore-s3
+          docker build -t postgres-restore-s3:test -f postgres-restore-s3/Dockerfile .
 
       - name: Test restore from basic backup
         run: |
@@ -525,7 +562,7 @@ jobs:
 
       - name: Build postgres-restore-file image
         run: |
-          docker build -t postgres-restore-file:test postgres-restore-file
+          docker build -t postgres-restore-file:test -f postgres-restore-file/Dockerfile .
 
       - name: Test restore from file
         run: |

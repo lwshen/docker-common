@@ -2,8 +2,10 @@ FROM ubuntu:24.04
 
 WORKDIR /app
 
-COPY install.sh install.sh
+COPY postgres-restore-file/install.sh install.sh
 RUN sh install.sh && rm install.sh
+
+COPY postgres-common/backup_tools.py backup_tools.py
 
 ENV POSTGRES_DATABASE=**None**
 ENV POSTGRES_HOST=**None**
@@ -14,8 +16,15 @@ ENV POSTGRES_USER=**None**
 ENV POSTGRES_PASSWORD=**None**
 ENV BACKUP_FILE="/backup/dump.sql"
 ENV DROP_PUBLIC='no'
+ENV RESTORE_EXISTING_ROLES=preserve
+ENV RESTORE_ROLES=false
+ENV RESTORE_TABLESPACES=false
+ENV RESTORE_NO_OWNER=true
+ENV RESTORE_NO_ACL=true
+ENV RESTORE_NO_TABLESPACES=true
+ENV RESTORE_DATABASE=""
 
-COPY restore.sh restore.sh
+COPY postgres-restore-file/restore.sh restore.sh
 
 # Create a volume for the backup file
 VOLUME /backup

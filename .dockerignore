@@ -1,0 +1,17 @@
+**
+!postgres-backup-s3/
+postgres-backup-s3/**
+!postgres-backup-s3/Dockerfile
+!postgres-backup-s3/*.sh
+!postgres-backup-s3/main.go
+!postgres-restore-s3/
+postgres-restore-s3/**
+!postgres-restore-s3/Dockerfile
+!postgres-restore-s3/*.sh
+!postgres-restore-file/
+postgres-restore-file/**
+!postgres-restore-file/Dockerfile
+!postgres-restore-file/*.sh
+!postgres-common/
+postgres-common/**
+!postgres-common/backup_tools.py
